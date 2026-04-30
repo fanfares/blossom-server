@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "@hono/hono/jsx/dom";
 import type { BlobDescriptor, FileStatus, UploadFile } from "./types.ts";
-import { HttpError, preflightUpload, xhrUpload } from "./api.ts";
+import { blobExists, HttpError, preflightUpload, xhrUpload } from "./api.ts";
 import { hashBatch, MAX_X_TAGS_PER_EVENT, signBatch } from "./auth.ts";
 import { createClientId, friendlyErrorMessage, isMediaFile } from "./helpers.ts";
 import { FileRow } from "./FileRow.tsx";
@@ -127,6 +127,27 @@ export function UploadForm({
       const endpoint = uf.optimize ? "/media" : "/upload";
       patchFile(uf.id, { status: "checking" });
 
+      // Dedup check: HEAD /<sha256> tells us whether the server already has
+      // this blob. /media optimizes the original, so the output hash is
+      // unknown until processing — skip the dedup check there.
+      if (!uf.optimize) {
+        try {
+          if (await blobExists(sha256)) {
+            const blobUrl = `${location.origin}/${sha256}`;
+            const syntheticResult: BlobDescriptor = {
+              sha256,
+              size: uf.file.size,
+              type: uf.file.type || "application/octet-stream",
+              url: blobUrl,
+            };
+            patchFile(uf.id, { status: "exists", result: syntheticResult });
+            return false;
+          }
+        } catch {
+          // Existence check failure shouldn't block the upload — fall through.
+        }
+      }
+
       try {
         const { status, reason } = await preflightUpload(
           endpoint,
@@ -136,22 +157,7 @@ export function UploadForm({
           authHeader,
         );
 
-        if (status === 200 && !uf.optimize) {
-          // HEAD /upload 200 = blob already exists on server, skip upload
-          const blobUrl = `${location.origin}/${sha256}`;
-          const syntheticResult: BlobDescriptor = {
-            sha256,
-            size: uf.file.size,
-            type: uf.file.type || "application/octet-stream",
-            url: blobUrl,
-          };
-          patchFile(uf.id, { status: "exists", result: syntheticResult });
-          return false;
-        }
-
-        // HEAD /upload 204 = accepted, proceed
-        // HEAD /media 200 = accepted, proceed (output hash unknown until processed)
-        if (status === 204 || (status === 200 && uf.optimize)) return true;
+        if (status === 200) return true;
 
         patchFile(uf.id, {
           status: "skipped",

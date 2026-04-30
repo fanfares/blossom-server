@@ -135,7 +135,7 @@ export function buildUploadRouter(
       return ctx.body(null, 200, { "X-Reason": "Blob already exists (dedup)" });
     }
 
-    return ctx.body(null, 204);
+    return ctx.body(null, 200);
   });
 
   // ---------------------------------------------------------------------------

@@ -3,6 +3,10 @@ import { friendlyErrorMessage } from "./helpers.ts";
 
 export interface PreflightResult {
   status: number;
+  /**
+   * Raw X-Reason text from the server. Pass through to the user as a
+   * human-readable error message — never parse it to derive state.
+   */
   reason?: string;
 }
 
@@ -19,11 +23,13 @@ export class HttpError extends Error {
 
 /**
  * HEAD /upload or HEAD /media preflight — checks whether the server will
- * accept the blob before sending bytes. Returns raw status + X-Reason.
+ * accept the blob before sending bytes.
  *
- *   200 → blob already exists on server (skip upload)
- *   204 → upload would be accepted (proceed)
- *   4xx → pre-rejection with reason
+ *   200 → upload would be accepted (proceed)
+ *   4xx → pre-rejection (X-Reason carries display text only)
+ *
+ * To check whether a blob already exists, use blobExists() against
+ * HEAD /<sha256> instead — do not infer dedup from the preflight response.
  */
 export async function preflightUpload(
   endpoint: "/upload" | "/media",
@@ -44,6 +50,15 @@ export async function preflightUpload(
     status: res.status,
     reason: res.headers.get("X-Reason") ?? undefined,
   };
+}
+
+/**
+ * BUD-02 HEAD /<sha256> — checks whether the server already has a blob.
+ * Returns true on 2xx, false otherwise.
+ */
+export async function blobExists(sha256: string): Promise<boolean> {
+  const res = await fetch(`/${sha256}`, { method: "HEAD" });
+  return res.ok;
 }
 
 /** XHR-based PUT upload with real upload progress. Returns status + descriptor. */

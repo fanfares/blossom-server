@@ -1,5 +1,12 @@
 # blossom-server
 
+## 6.1.5
+
+### Patch Changes
+
+- `HEAD /upload` now returns **200** when the upload would be accepted (was
+  204). The 204 status code is no longer used on the HEAD endpoint.
+
 ## 6.1.4
 
 ### Patch Changes

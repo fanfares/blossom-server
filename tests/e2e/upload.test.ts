@@ -709,7 +709,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: "HEAD /upload: valid preflight returns 204 No Content",
+  name: "HEAD /upload: valid preflight returns 200 OK",
   async fn() {
     const res = await fetchNoAuth("/upload", {
       method: "HEAD",
@@ -718,7 +718,7 @@ Deno.test({
         "X-Content-Type": "application/octet-stream",
       },
     });
-    assertEquals(res.status, 204);
+    assertEquals(res.status, 200);
   },
   ...testOpts,
 });
