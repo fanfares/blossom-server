@@ -12,16 +12,24 @@ function formatBytes(bytes: number): string {
 const StatCard: FC<{ label: string; value: string | number }> = (
   { label, value },
 ) => (
-  <div class="bg-gray-900 rounded-xl p-6 flex flex-col gap-1 border border-gray-800">
-    <span class="text-3xl font-bold text-white">{value}</span>
-    <span class="text-sm text-gray-400 uppercase tracking-wide">{label}</span>
+  <div class="flex min-h-28 flex-col justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_24px_90px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+    <span class="text-2xl font-semibold leading-none tracking-tight text-white sm:text-3xl">
+      {value}
+    </span>
+    <span class="mt-4 text-[11px] uppercase tracking-[0.28em] text-cyan-200/55">
+      {label}
+    </span>
   </div>
 );
 
 export const StatsBar: FC<{ stats: BlobStats }> = ({ stats }) => (
   <section>
-    <h2 class="text-lg font-semibold text-gray-400 mb-4">Server Stats</h2>
-    <div class="grid grid-cols-3 gap-4">
+    <div class="mb-4 flex items-center justify-between">
+      <h2 class="text-sm font-semibold uppercase tracking-[0.35em] text-cyan-200/55">
+        Server Stats
+      </h2>
+    </div>
+    <div class="grid gap-4 sm:grid-cols-3">
       <StatCard label="Total Blobs" value={stats.blobCount.toLocaleString()} />
       <StatCard label="Storage Used" value={formatBytes(stats.totalSize)} />
       <StatCard

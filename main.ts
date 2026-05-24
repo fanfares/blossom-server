@@ -54,7 +54,7 @@ if (config.storage.backend === "local") {
   await local.setup();
   storage = local;
   console.log(`  Storage:  local (${storageDir})`);
-} else {
+} else if (config.storage.backend === "s3") {
   const s3Config = config.storage.s3;
   if (!s3Config) {
     console.error(
@@ -78,6 +78,34 @@ if (config.storage.backend === "local") {
   storage = s3;
   console.log(
     `  Storage:  s3 ready (bucket=${s3Config.bucket} endpoint=${s3Config.endpoint})`,
+  );
+} else {
+  const r2Config = config.storage.r2;
+  if (!r2Config) {
+    console.error(
+      "R2 storage backend selected but no [storage.r2] config section found.",
+    );
+    Deno.exit(1);
+  }
+
+  const endpoint = `https://${r2Config.accountId}.r2.cloudflarestorage.com`;
+  const r2 = new S3Storage({
+    endpoint,
+    bucket: r2Config.bucket,
+    accessKey: r2Config.accessKey,
+    secretKey: r2Config.secretKey,
+    region: "auto",
+    publicURL: r2Config.publicURL,
+    tmpDir: r2Config.tmpDir,
+  });
+
+  console.log(
+    `  Storage:  r2 — verifying bucket access (${r2Config.bucket} @ ${endpoint})...`,
+  );
+  await r2.setup();
+  storage = r2;
+  console.log(
+    `  Storage:  r2 ready (bucket=${r2Config.bucket} endpoint=${endpoint})`,
   );
 }
 

@@ -56,7 +56,14 @@ export async function initDb(config: DbConfig): Promise<Client> {
 
   // WAL mode and related pragmas are SQLite-only — skip for remote libSQL
   if (!remote) {
-    await client.execute("PRAGMA journal_mode=WAL");
+    try {
+      await client.execute("PRAGMA journal_mode=WAL");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("not an error")) {
+        throw err;
+      }
+    }
     await client.execute("PRAGMA synchronous=NORMAL");
     await client.execute("PRAGMA foreign_keys=ON");
   }

@@ -406,7 +406,11 @@ export function buildUploadRouter(
     };
     debug(debugPrefix, `insertBlob start hash=${hash}`);
     const t2 = Date.now();
-    await insertBlob(db, blobRecord, auth?.pubkey ?? "anonymous");
+    await insertBlob(
+      db,
+      blobRecord,
+      auth?.pubkey ?? "anonymous",
+    );
     const t3 = Date.now();
     debug(debugPrefix, `insertBlob complete elapsed=${t3 - t2}ms`);
 

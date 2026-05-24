@@ -9,3 +9,5 @@ dist
 public/client.js
 .planning
 .claude
+.wrangler/
+config.r2.yml

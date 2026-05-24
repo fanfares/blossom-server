@@ -52,7 +52,7 @@ database:
 # ---------------------------------------------------------------------------
 
 storage:
-  # Storage backend: "local" or "s3"
+  # Storage backend: "local", "s3", or "r2"
   backend: local
 
   # Local filesystem storage. Used when backend is "local".
@@ -75,6 +75,22 @@ storage:
   #   # Local directory for buffering uploads before committing to S3.
   #   # Must have enough free space for the largest expected upload.
   #   # tmpDir: ./data/s3-tmp
+
+  # Cloudflare R2 object storage. Used when backend is "r2".
+  # r2:
+  #   # Cloudflare account ID (Dashboard -> Workers & Pages -> Overview)
+  #   accountId: "${CF_ACCOUNT_ID}"
+  #   bucket: my-blossom-r2-bucket
+  #   accessKey: "${R2_ACCESS_KEY_ID}"
+  #   secretKey: "${R2_SECRET_ACCESS_KEY}"
+  #
+  #   # Optional: redirect GET /:sha256 to this URL prefix instead of proxying.
+  #   # Recommended with a custom domain mapped to the bucket.
+  #   # publicURL: https://media.example.com/
+  #
+  #   # Local directory for buffering uploads before committing to R2.
+  #   # Must have enough free space for the largest expected upload.
+  #   # tmpDir: ./data/r2-tmp
 
   # When true, blobs with no owners are removed on each prune cycle,
   # regardless of expiry rules.
@@ -298,7 +314,7 @@ landing:
   enabled: true
 
   # Page title shown in <title> and <h1>.
-  title: "Blossom Server"
+  title: "Fanfares Blossom Server"
 
 # ---------------------------------------------------------------------------
 # Blob reports (BUD-09)

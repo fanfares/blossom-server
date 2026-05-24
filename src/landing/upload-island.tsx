@@ -24,7 +24,6 @@ export const UploadIsland: FC<{
   },
 ) => (
   <section>
-    <h2 class="text-lg font-semibold text-gray-400 mb-4">Upload</h2>
     {uploadEnabled
       ? (
         <div>
@@ -35,10 +34,10 @@ export const UploadIsland: FC<{
             data-media-require-auth={String(mediaRequireAuth)}
             data-mirror-enabled={String(mirrorEnabled)}
             data-mirror-require-auth={String(mirrorRequireAuth)}
-            class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden"
+            class="bg-black/40 rounded-none border-0 overflow-hidden"
           >
             {/* Static fallback shown before JS loads */}
-            <div class="p-6 flex items-center justify-center min-h-40">
+            <div class="p-6 flex items-center justify-center min-h-40 border-t border-white/10">
               <p class="text-gray-500 text-sm">Loading upload form...</p>
             </div>
           </div>
@@ -46,7 +45,7 @@ export const UploadIsland: FC<{
         </div>
       )
       : (
-        <div class="bg-gray-900 rounded-xl border border-gray-800 p-8 text-center">
+        <div class="rounded-none border-t border-white/10 bg-black/40 p-8 text-center">
           <p class="text-gray-500 text-sm">
             Uploads are disabled on this server.
           </p>

@@ -375,7 +375,7 @@ export async function countBlobs(
   const args: (string | number)[] = [];
 
   if (filter?.q) {
-    conditions.push("(sha256 LIKE ? OR type LIKE ?)");
+    conditions.push("(b.sha256 LIKE ? OR b.type LIKE ?)");
     args.push(`%${filter.q}%`, `%${filter.q}%`);
   }
   if (filter?.type !== undefined) {
@@ -393,7 +393,7 @@ export async function countBlobs(
     ? `WHERE ${conditions.join(" AND ")}`
     : "";
   const rs = await db.execute({
-    sql: `SELECT COUNT(*) FROM blobs ${where}`,
+    sql: `SELECT COUNT(*) FROM blobs b ${where}`,
     args,
   });
   return (rs.rows[0]?.[0] as number) ?? 0;

@@ -48,7 +48,18 @@ export async function buildLandingRouter(
   const app = new Hono();
 
   app.get("/", (c) => {
-    return c.html(<LandingPage db={handle} config={config} />);
+    const tab = c.req.query("tab") ?? "overview";
+    const q = c.req.query("q") ?? "";
+    const page = Number.parseInt(c.req.query("page") ?? "1", 10);
+    return c.html(
+      <LandingPage
+        db={handle}
+        config={config}
+        tab={tab}
+        q={q}
+        page={Number.isFinite(page) && page > 0 ? page : 1}
+      />,
+    );
   });
 
   return app;

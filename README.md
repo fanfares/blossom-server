@@ -26,7 +26,7 @@ retrieved by their SHA-256 hash. Built with [Deno 2](https://deno.com),
 - Configurable storage retention rules with MIME-type glob patterns and
   per-pubkey scoping
 - Automatic prune loop — expired blobs are removed on a configurable timer
-- Local filesystem and S3-compatible storage backends
+- Local filesystem, S3-compatible, and Cloudflare R2 storage backends
 - Optional server-side rendered admin dashboard at `/admin` (Hono JSX)
 - Optional server-rendered landing page at `/`
 - Docker-ready with a single-stage Dockerfile and health check
@@ -99,7 +99,7 @@ directory). Environment variables can be substituted anywhere in the file using
 | `publicDomain`               | _(Host header)_  | Bare hostname this server is publicly reachable at, used in blob URLs and BUD-11 server-tag validation (no `https://`) |
 | `database.path`              | `data/sqlite.db` | Local SQLite database path                                                                                             |
 | `database.url`               | —                | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                       |
-| `storage.backend`            | `local`          | Storage backend: `local` or `s3`                                                                                       |
+| `storage.backend`            | `local`          | Storage backend: `local`, `s3`, or `r2`                                                                                |
 | `storage.local.dir`          | `./data/blobs`   | Directory for blob files (local backend)                                                                               |
 | `storage.removeWhenNoOwners` | `false`          | Delete blobs with no owners on each prune cycle, regardless of expiry rules                                            |
 | `upload.enabled`             | `true`           | Enable `PUT /upload`                                                                                                   |
@@ -139,6 +139,58 @@ storage:
     # Local buffer directory for uploads before committing to S3
     tmpDir: ./data/s3-tmp
 ```
+
+### Cloudflare R2 Storage Backend
+
+R2 is S3-compatible and is supported as a first-class backend.
+
+```yaml
+storage:
+  backend: r2
+  r2:
+    accountId: "${CF_ACCOUNT_ID}"
+    bucket: my-blossom-r2-bucket
+    accessKey: "${R2_ACCESS_KEY_ID}"
+    secretKey: "${R2_SECRET_ACCESS_KEY}"
+    # Optional: redirect GET requests to this URL prefix instead of proxying
+    # publicURL: https://media.example.com/
+    # Local buffer directory for uploads before committing to R2
+    tmpDir: ./data/r2-tmp
+```
+
+How to get R2 credentials:
+
+1. In Cloudflare Dashboard, create an R2 bucket.
+2. Create an R2 API token with Object Read + Write on that bucket.
+3. Create access keys from that token.
+4. Set `CF_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` in your
+   runtime environment.
+
+## Deploying Behind Cloudflare
+
+This server is a Deno process with ffmpeg/sharp support, so run it as a
+container/VM origin and put Cloudflare in front.
+
+1. Deploy this image on your preferred runtime (Docker host, Fly.io, Railway,
+   Kubernetes, etc.).
+2. Set `storage.backend: r2` and the `storage.r2` credentials in `config.yml`.
+3. Set `publicDomain` to your Cloudflare hostname (for example
+   `media.example.com`).
+4. In Cloudflare DNS, point `media.example.com` to your origin (proxied/orange
+   cloud enabled).
+5. Optional but recommended: map your R2 bucket to the same hostname and set
+   `storage.r2.publicURL` so GETs redirect directly to R2.
+
+If you are running Docker yourself, one practical setup is Cloudflare Tunnel:
+
+1. Run Blossom with Docker Compose on your host.
+2. Install `cloudflared` on the host and create a tunnel to
+   `http://localhost:3000`.
+3. Route your Cloudflare DNS hostname to that tunnel.
+4. Keep `publicDomain` set to that hostname.
+
+This gives you Cloudflare TLS, DDoS protection, and caching at the edge while
+Blossom remains the origin.
 
 ### Storage Retention Rules
 

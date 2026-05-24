@@ -58,18 +58,50 @@ const S3StorageSchema = z.object({
     ),
 });
 
+const R2StorageSchema = z.object({
+  accountId: z
+    .string()
+    .describe(
+      "Cloudflare account ID used to construct the R2 S3 endpoint.",
+    ),
+  bucket: z
+    .string()
+    .describe("Name of the Cloudflare R2 bucket to store blobs in."),
+  accessKey: z.string().describe(
+    "R2 access key ID. Use ${ENV_VAR} syntax to read from an environment variable.",
+  ),
+  secretKey: z.string().describe(
+    "R2 secret access key. Use ${ENV_VAR} syntax to read from an environment variable.",
+  ),
+  publicURL: z
+    .string()
+    .optional()
+    .describe(
+      "If set, GET /:sha256 redirects to this URL prefix instead of proxying the object. The blob hash and extension are appended automatically.",
+    ),
+  tmpDir: z
+    .string()
+    .default("./data/r2-tmp")
+    .describe(
+      "Local directory used to buffer upload data before committing to R2. Must be on a filesystem with enough free space for the largest expected upload.",
+    ),
+});
+
 const StorageSchema = z.object({
   backend: z
-    .enum(["local", "s3"])
+    .enum(["local", "s3", "r2"])
     .default("local")
     .describe(
-      'Storage backend: "local" writes blobs to the local filesystem; "s3" uses an S3-compatible object store.',
+      'Storage backend: "local" writes blobs to the local filesystem; "s3" uses a generic S3-compatible object store; "r2" uses Cloudflare R2.',
     ),
   local: LocalStorageSchema.optional().describe(
     'Local filesystem storage settings. Only used when backend is "local".',
   ),
   s3: S3StorageSchema.optional().describe(
     'S3-compatible object storage settings. Only used when backend is "s3".',
+  ),
+  r2: R2StorageSchema.optional().describe(
+    'Cloudflare R2 object storage settings. Only used when backend is "r2".',
   ),
   rules: z
     .array(StorageRuleSchema)
@@ -399,7 +431,7 @@ const LandingSchema = z.object({
     .describe(
       "Enable the server-rendered landing page at GET /. Shows server info and stats.",
     ),
-  title: z.string().default("Blossom Server").describe(
+  title: z.string().default("Fanfares Blossom Server").describe(
     "Page title displayed in <title> and <h1> on the landing page.",
   ),
 });
