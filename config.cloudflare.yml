@@ -4,8 +4,9 @@ port: 3000
 # Leave empty for workers.dev, set to custom domain when attached.
 publicDomain: "${BLOSSOM_PUBLIC_DOMAIN}"
 
-# Temporary fallback DB for Cloudflare deployment.
-# Replace with Turso `database.url` + `authToken` once secrets are configured.
+# Temporary metadata backend for container runtime.
+# D1 is provisioned in wrangler.jsonc, but this Deno process cannot use Worker
+# bindings directly until a runtime integration refactor is completed.
 database:
   path: ./data/sqlite.db
 

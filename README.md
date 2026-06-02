@@ -198,6 +198,8 @@ When running in Cloudflare Containers, do not keep metadata in local SQLite.
 Container-local files are ephemeral, so dashboard counters can reset even if
 blob bytes still exist in R2.
 
+### Option A: Turso (works with current container runtime)
+
 Use a remote libSQL/Turso database:
 
 1. Set Worker secrets:
@@ -220,6 +222,30 @@ database:
 ```sh
 wrangler deploy --config wrangler.jsonc
 ```
+
+### Option B: D1 (provisioned, migration scaffold ready)
+
+D1 has been provisioned for this workspace and bound in `wrangler.jsonc` as
+`blossom_metadata`.
+
+Initialize schema:
+
+```sh
+deno task d1:init
+deno task d1:init:remote
+```
+
+Verify schema:
+
+```sh
+deno task d1:query
+deno task d1:query:remote
+```
+
+Important: the current server process runs inside a Cloudflare Container
+(Deno runtime), and cannot directly consume Worker D1 bindings yet. The D1
+database is ready, but a runtime integration refactor is still required before
+the dashboard can read metadata from D1 in production.
 
 ### Recover Dashboard Metadata From Existing R2 Objects
 

@@ -13,7 +13,11 @@
     "start": "deno run --env-file=.env --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-sys --allow-run main.ts",
     "test": "deno test --env-file=.env --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-sys tests/unit/ tests/e2e/",
     "build": "deno bundle --config src/landing/client/deno.json --minify --platform browser -o public/client.js src/landing/client/index.tsx",
-    "reindex:metadata": "deno run --env-file=.env --allow-net --allow-read --allow-write --allow-env scripts/reindex-storage-metadata.ts"
+    "reindex:metadata": "deno run --env-file=.env --allow-net --allow-read --allow-write --allow-env scripts/reindex-storage-metadata.ts",
+    "d1:init": "wrangler d1 execute blossom-metadata --file scripts/d1/schema.sql --config wrangler.jsonc",
+    "d1:init:remote": "wrangler d1 execute blossom-metadata --file scripts/d1/schema.sql --remote --config wrangler.jsonc",
+    "d1:query": "wrangler d1 execute blossom-metadata --command \"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;\" --config wrangler.jsonc",
+    "d1:query:remote": "wrangler d1 execute blossom-metadata --command \"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;\" --remote --config wrangler.jsonc"
   },
   "imports": {
     "@bradenmacdonald/s3-lite-client": "jsr:@bradenmacdonald/s3-lite-client@^0.9.5",
