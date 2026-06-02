@@ -4,11 +4,10 @@ port: 3000
 # Leave empty for workers.dev, set to custom domain when attached.
 publicDomain: "${BLOSSOM_PUBLIC_DOMAIN}"
 
-# Persistent metadata DB for Cloudflare deployment.
-# Do not rely on local SQLite in containers; it is not durable across restarts.
+# Temporary fallback DB for Cloudflare deployment.
+# Replace with Turso `database.url` + `authToken` once secrets are configured.
 database:
-  url: "${TURSO_DATABASE_URL}"
-  authToken: "${TURSO_AUTH_TOKEN}"
+  path: ./data/sqlite.db
 
 storage:
   backend: r2

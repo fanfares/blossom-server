@@ -45,6 +45,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Route all requests to one stable container instance.
     const container = env.BLOSSOM_APP.getByName("primary");
+    await container.start();
     return await container.fetch(request);
   },
 };
