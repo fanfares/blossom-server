@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fanfares-blossom-server",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-24",
+  "containers": [
+    {
+      "class_name": "BlossomAppContainer",
+      "image": "./Dockerfile.cloudflare",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BLOSSOM_APP",
+        "class_name": "BlossomAppContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "BlossomAppContainer"
+      ]
+    }
+  ],
+  "vars": {
+    "CF_ACCOUNT_ID": "4e84c1691dd1a8230152bfc2551cec85",
+    "R2_BUCKET": "ff-blossom-test",
+    "BLOSSOM_PUBLIC_DOMAIN": "",
+    "BLOSSOM_ADMIN_PASSWORD": ""
+  },
+  "observability": {
+    "enabled": true
+  }
+}

@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+
+FROM denoland/deno:debian
+
+WORKDIR /app
+
+# ffmpeg is optional at runtime since media is disabled in config.cloudflare.yml,
+# but we keep parity with the standard image in case media is later enabled.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
+COPY deno.json deno.lock ./
+COPY main.ts ./
+COPY config.cloudflare.yml ./
+COPY public/ ./public/
+COPY src/ ./src/
+
+RUN deno cache main.ts && deno task build
+
+EXPOSE 3000
+
+ENTRYPOINT ["deno", "task", "start", "config.cloudflare.yml"]

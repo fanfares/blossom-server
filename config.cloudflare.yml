@@ -1,0 +1,48 @@
+host: 0.0.0.0
+port: 3000
+
+# Leave empty for workers.dev, set to custom domain when attached.
+publicDomain: "${BLOSSOM_PUBLIC_DOMAIN}"
+
+# Persistent metadata DB for Cloudflare deployment.
+# Do not rely on local SQLite in containers; it is not durable across restarts.
+database:
+  url: "${TURSO_DATABASE_URL}"
+  authToken: "${TURSO_AUTH_TOKEN}"
+
+storage:
+  backend: r2
+  r2:
+    accountId: "${CF_ACCOUNT_ID}"
+    bucket: "${R2_BUCKET}"
+    accessKey: "${R2_ACCESS_KEY_ID}"
+    secretKey: "${R2_SECRET_ACCESS_KEY}"
+    tmpDir: /tmp/blossom-r2-tmp
+
+upload:
+  enabled: true
+  requireAuth: false
+
+mirror:
+  enabled: true
+  requireAuth: false
+
+delete:
+  requireAuth: false
+
+list:
+  enabled: true
+  requireAuth: false
+
+media:
+  enabled: false
+
+landing:
+  enabled: true
+  title: "Fanfares Blossom Server"
+
+report:
+  enabled: false
+
+dashboard:
+  enabled: false

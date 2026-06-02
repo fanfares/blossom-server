@@ -1,0 +1,27 @@
+{
+  "name": "blossom-server",
+  "version": "1.0.0",
+  "description": "A content-addressed blob storage server implementing the [Blossom](https://github.com/hzrd149/blossom) protocol. Files are stored and retrieved by their SHA-256 hash. Built with [Deno 2](https://deno.com), [Hono](https://hono.dev), and [LibSQL](https://turso.tech/libsql).",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fanfares/blossom-server.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/fanfares/blossom-server/issues"
+  },
+  "homepage": "https://github.com/fanfares/blossom-server#readme",
+  "devDependencies": {
+    "@cloudflare/containers": "^0.3.4"
+  }
+}
