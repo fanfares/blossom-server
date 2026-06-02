@@ -192,6 +192,60 @@ If you are running Docker yourself, one practical setup is Cloudflare Tunnel:
 This gives you Cloudflare TLS, DDoS protection, and caching at the edge while
 Blossom remains the origin.
 
+## Cloudflare Containers: Durable Metadata
+
+When running in Cloudflare Containers, do not keep metadata in local SQLite.
+Container-local files are ephemeral, so dashboard counters can reset even if
+blob bytes still exist in R2.
+
+Use a remote libSQL/Turso database:
+
+1. Set Worker secrets:
+
+```sh
+wrangler secret put TURSO_DATABASE_URL --config wrangler.jsonc
+wrangler secret put TURSO_AUTH_TOKEN --config wrangler.jsonc
+```
+
+2. Configure DB in your cloud config:
+
+```yaml
+database:
+  url: "${TURSO_DATABASE_URL}"
+  authToken: "${TURSO_AUTH_TOKEN}"
+```
+
+3. Deploy:
+
+```sh
+wrangler deploy --config wrangler.jsonc
+```
+
+### Recover Dashboard Metadata From Existing R2 Objects
+
+If your R2 bucket already contains blobs but metadata was lost, reindex object
+keys back into the database:
+
+```sh
+deno task reindex:metadata config.cloudflare.yml --owner=recovered-r2
+```
+
+Useful flags:
+
+- `--dry-run` to preview counts without writing.
+- `--since=<unix>` to only recover newer objects.
+- `--limit=<n>` to test on a subset first.
+
+For a Cloudflare-deployed container, you can run the reindex script inside the
+live instance (so it uses configured Worker secrets):
+
+```sh
+wrangler containers instances <APPLICATION_ID> --config wrangler.jsonc
+wrangler containers ssh <INSTANCE_ID> --config wrangler.jsonc
+# then inside the container shell
+deno task reindex:metadata config.cloudflare.yml --owner=recovered-r2
+```
+
 ### Storage Retention Rules
 
 Rules serve as both an upload allowlist and a retention policy. The first

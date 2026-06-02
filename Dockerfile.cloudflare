@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -r
 COPY deno.json deno.lock ./
 COPY main.ts ./
 COPY config.cloudflare.yml ./
+COPY scripts/ ./scripts/
 COPY public/ ./public/
 COPY src/ ./src/
 

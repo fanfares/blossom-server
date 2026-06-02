@@ -12,6 +12,7 @@
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/ulid@1": "1.0.0",
     "jsr:@std/yaml@^1.0.12": "1.0.12",
+    "npm:@cloudflare/containers@~0.3.4": "0.3.6",
     "npm:@libsql/client@*": "0.17.0",
     "npm:@libsql/client@0.17": "0.17.0",
     "npm:applesauce-common@^5.2.0": "5.2.0",
@@ -65,6 +66,9 @@
   "npm": {
     "@borewit/text-codec@0.2.2": {
       "integrity": "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="
+    },
+    "@cloudflare/containers@0.3.6": {
+      "integrity": "sha512-8RrbK/Et165gjvXccui3pgkUuySVWysTC6bJRXfgqmbCA2vAmh8pm7cAKDh2nZFR/GSjW4BgxeKpffCTD8SJEg=="
     },
     "@emnapi/runtime@1.9.0": {
       "integrity": "sha512-QN75eB0IH2ywSpRpNddCRfQIhmJYBCJ1x5Lb3IscKAL8bMnVAKnRg8dCoXbHzVLLH7P38N2Z3mtulB7W0J0FKw==",
@@ -709,6 +713,11 @@
       "npm:rxjs@^7.8.0",
       "npm:sharp@~0.34.5",
       "npm:zod@^4.3.6"
-    ]
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:@cloudflare/containers@~0.3.4"
+      ]
+    }
   }
 }
