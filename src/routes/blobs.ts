@@ -12,6 +12,7 @@
 
 import { Hono } from "@hono/hono";
 import type { Client } from "@libsql/client";
+import { contentType } from "@std/media-types";
 import type { IBlobStorage } from "../storage/interface.ts";
 import { getBlob, touchBlob } from "../db/blobs.ts";
 import { optionalAuth } from "../middleware/auth.ts";
@@ -21,6 +22,24 @@ import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
+
+function parseRequestedExt(filename: string, hash: string): string {
+  const suffix = filename.slice(hash.length);
+  if (!suffix.startsWith(".")) return "";
+  const ext = suffix.slice(1).trim().toLowerCase();
+  return /^[a-z0-9]+$/.test(ext) ? ext : "";
+}
+
+async function resolveStorageExt(
+  storage: IBlobStorage,
+  hash: string,
+  candidates: string[],
+): Promise<string | null> {
+  for (const ext of candidates) {
+    if (await storage.has(hash, ext)) return ext;
+  }
+  return null;
+}
 
 export function buildBlobsRouter(
   db: Client,
@@ -37,6 +56,7 @@ export function buildBlobsRouter(
     // Extract 64-char hex hash — the last 64-char hex run in the segment
     const match = filename.match(/([0-9a-f]{64})/);
     const hash = match?.[1] ?? "";
+    const requestedExt = parseRequestedExt(filename, hash);
 
     if (!SHA256_RE.test(hash)) {
       return next();
@@ -48,35 +68,40 @@ export function buildBlobsRouter(
     // Future: add config.get.requireAuth
     const _auth = optionalAuth(ctx);
 
-    // Lookup metadata — DB is the index; type column tells us the on-disk extension
+    // Lookup metadata — DB is the preferred index.
     const blob = await getBlob(db, hash);
-    if (!blob) {
-      return errorResponse(ctx, 404, "Blob not found");
-    }
 
-    // Derive the extension the file was stored with
-    const ext = mimeToExt(blob.type);
-
-    // Check storage has the actual file
-    if (!(await storage.has(hash, ext))) {
+    const candidateExts = blob
+      ? [mimeToExt(blob.type), requestedExt, ""]
+      : [requestedExt, ""];
+    const dedupedExts = [...new Set(candidateExts.filter((e) => e !== undefined))];
+    const ext = await resolveStorageExt(storage, hash, dedupedExts);
+    if (!ext) {
       return errorResponse(ctx, 404, "Blob not found in storage");
     }
 
-    // Update last-access timestamp (for prune rules) — fire-and-forget
+    // Update last-access timestamp in the container DB when a row exists.
     const now = Math.floor(Date.now() / 1000);
-    touchBlob(db, hash, now).catch((err) =>
-      console.warn("touchBlob failed:", err)
-    );
+    if (blob) {
+      touchBlob(db, hash, now).catch((err) =>
+        console.warn("touchBlob failed:", err)
+      );
+    }
 
-    const mimeType = blob.type ?? "application/octet-stream";
+    const resolvedSize = blob?.size ?? await storage.size(hash, ext);
+    const mimeType = blob?.type ?? (ext ? contentType(ext) ?? null : null) ??
+      "application/octet-stream";
+
     const headers: Record<string, string> = {
       "Content-Type": mimeType,
-      "Content-Length": String(blob.size),
       "Accept-Ranges": "bytes",
       "Cache-Control": "public, max-age=31536000, immutable",
       ETag: `"${hash}"`,
-      "Last-Modified": new Date(blob.uploaded * 1000).toUTCString(),
+      "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
     };
+    if (resolvedSize !== null) {
+      headers["Content-Length"] = String(resolvedSize);
+    }
 
     // Conditional request: If-None-Match (RFC 9110 §13.1.2)
     // The SHA-256 hash is a perfect ETag — content-addressed, immutable, already computed.
@@ -102,10 +127,13 @@ export function buildBlobsRouter(
     // Range request support (BUD-01)
     const rangeHeader = ctx.req.header("range");
     if (rangeHeader) {
-      const rangeResult = parseRange(rangeHeader, blob.size);
+      if (resolvedSize === null) {
+        return errorResponse(ctx, 416, "Range not satisfiable");
+      }
+      const rangeResult = parseRange(rangeHeader, resolvedSize);
       if (!rangeResult) {
         return ctx.body(null, 416, {
-          "Content-Range": `bytes */${blob.size}`,
+          "Content-Range": `bytes */${resolvedSize}`,
         });
       }
 
@@ -117,7 +145,7 @@ export function buildBlobsRouter(
         status: 206,
         headers: {
           ...headers,
-          "Content-Range": `bytes ${start}-${end}/${blob.size}`,
+          "Content-Range": `bytes ${start}-${end}/${resolvedSize}`,
           "Content-Length": String(end - start + 1),
         },
       });

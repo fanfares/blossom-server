@@ -217,8 +217,13 @@ async function handleMetadataApi(
     const conditions: string[] = [];
     const args: Array<string | number> = [];
     if (q) {
-      conditions.push("(b.sha256 LIKE ? OR b.type LIKE ?)");
-      args.push(`%${q}%`, `%${q}%`);
+      if (HEX_64_RE.test(q)) {
+        conditions.push("b.sha256 = ?");
+        args.push(q);
+      } else {
+        conditions.push("(b.sha256 LIKE ? OR b.type LIKE ?)");
+        args.push(`%${q}%`, `%${q}%`);
+      }
     }
     if (types.length === 1) {
       conditions.push("b.type = ?");
@@ -267,8 +272,13 @@ async function handleMetadataApi(
     const conditions: string[] = [];
     const args: Array<string | number> = [];
     if (q) {
-      conditions.push("(sha256 LIKE ? OR type LIKE ?)");
-      args.push(`%${q}%`, `%${q}%`);
+      if (HEX_64_RE.test(q)) {
+        conditions.push("sha256 = ?");
+        args.push(q);
+      } else {
+        conditions.push("(sha256 LIKE ? OR type LIKE ?)");
+        args.push(`%${q}%`, `%${q}%`);
+      }
     }
     if (types.length === 1) {
       conditions.push("type = ?");
