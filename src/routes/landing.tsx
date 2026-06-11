@@ -11,6 +11,7 @@ import { Hono } from "@hono/hono";
 import type { Client } from "@libsql/client";
 import type { Config } from "../config/schema.ts";
 import { DirectDbHandle } from "../db/direct.ts";
+import { MetaApiDbHandle } from "../db/meta-api.ts";
 import { LandingPage } from "../landing/page.tsx";
 
 const CLIENT_BUNDLE_PATH = "./public/client.js";
@@ -41,7 +42,8 @@ export async function buildLandingRouter(
   db: Client,
   config: Config,
 ): Promise<Hono> {
-  const handle = new DirectDbHandle(db);
+  const directHandle = new DirectDbHandle(db);
+  const useWorkerMetadata = Deno.env.get("D1_METADATA_ENABLED") === "1";
 
   await warnIfClientBundleMissing();
 
@@ -51,6 +53,12 @@ export async function buildLandingRouter(
     const tab = c.req.query("tab") ?? "overview";
     const q = c.req.query("q") ?? "";
     const page = Number.parseInt(c.req.query("page") ?? "1", 10);
+    const reqUrl = new URL(c.req.url);
+    const metadataBaseUrl = `${reqUrl.protocol}//${reqUrl.host}`;
+    const handle = useWorkerMetadata
+      ? new MetaApiDbHandle(metadataBaseUrl)
+      : directHandle;
+
     return c.html(
       <LandingPage
         db={handle}

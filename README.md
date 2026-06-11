@@ -223,7 +223,7 @@ database:
 wrangler deploy --config wrangler.jsonc
 ```
 
-### Option B: D1 (provisioned, migration scaffold ready)
+### Option B: D1 (active Worker-side metadata service)
 
 D1 has been provisioned for this workspace and bound in `wrangler.jsonc` as
 `blossom_metadata`.
@@ -242,15 +242,41 @@ deno task d1:query
 deno task d1:query:remote
 ```
 
-Important: the current server process runs inside a Cloudflare Container
-(Deno runtime), and cannot directly consume Worker D1 bindings yet. The D1
-database is ready, but a runtime integration refactor is still required before
-the dashboard can read metadata from D1 in production.
+In this deployment mode, the Worker exposes a metadata API backed by D1 at
+`/__meta/*` and keeps it in sync while forwarding blob I/O to the existing
+container runtime:
+
+- `GET /__meta/stats`
+- `GET /__meta/blobs`
+- `GET /__meta/blobs/count`
+- `GET /__meta/users`
+- `GET /__meta/users/count`
+
+Dashboard reads are routed through that Worker metadata API, while blob bytes
+(`PUT /upload`, `GET /:sha256`, etc.) still use the container + R2 path.
 
 ### Recover Dashboard Metadata From Existing R2 Objects
 
-If your R2 bucket already contains blobs but metadata was lost, reindex object
-keys back into the database:
+If your R2 bucket already contains blobs but metadata was lost, use the Worker
+one-time import endpoint to copy key-derived metadata into D1:
+
+```sh
+curl -X POST "https://<your-domain>/__meta/reindex?owner=recovered-r2&limit=100000"
+```
+
+Optional query parameters:
+
+- `owner` (default `recovered-r2`)
+- `limit` max objects per run (default `100000`, page size is internal)
+- `dryRun=true` to scan without writing
+
+If `BLOSSOM_ADMIN_PASSWORD` is set, include:
+
+```sh
+-H "Authorization: Bearer <admin-password>"
+```
+
+Legacy local script (useful outside Worker runtime):
 
 ```sh
 deno task reindex:metadata config.cloudflare.yml --owner=recovered-r2
@@ -262,13 +288,7 @@ Useful flags:
 - `--since=<unix>` to only recover newer objects.
 - `--limit=<n>` to test on a subset first.
 
-For a Cloudflare-deployed container, you can run the reindex script inside the
-live instance (so it uses configured Worker secrets):
-
 ```sh
-wrangler containers instances <APPLICATION_ID> --config wrangler.jsonc
-wrangler containers ssh <INSTANCE_ID> --config wrangler.jsonc
-# then inside the container shell
 deno task reindex:metadata config.cloudflare.yml --owner=recovered-r2
 ```
 

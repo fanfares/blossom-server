@@ -1,10 +1,6 @@
 import type { FC } from "@hono/hono/jsx";
 import type { Config } from "../config/schema.ts";
-import type {
-  AdminBlobRecord,
-  AdminUserRecord,
-  IDbHandle,
-} from "../db/handle.ts";
+import type { AdminBlobRecord, AdminUserRecord } from "../db/handle.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import { Layout } from "./layout.tsx";
 import { StatsBar } from "./stats-bar.tsx";
@@ -82,7 +78,27 @@ function routeToPublisher(pubkey: string): string {
 }
 
 interface LandingPageProps {
-  db: IDbHandle;
+  db: {
+    getStats(): Promise<
+      { blobCount: number; totalSize: number; dailyUploads: number }
+    >;
+    listAllBlobs(opts?: {
+      filter?: { q?: string; type?: string | string[] };
+      sort?: [string, string];
+      limit?: number;
+      offset?: number;
+    }): Promise<AdminBlobRecord[]>;
+    countBlobs(
+      filter?: { q?: string; type?: string | string[] },
+    ): Promise<number>;
+    listAllUsers(opts?: {
+      filter?: { q?: string; pubkey?: string };
+      sort?: [string, string];
+      limit?: number;
+      offset?: number;
+    }): Promise<AdminUserRecord[]>;
+    countUsers(filter?: { q?: string; pubkey?: string }): Promise<number>;
+  };
   config: Config;
   tab: string;
   q: string;
