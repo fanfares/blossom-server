@@ -1,5 +1,11 @@
 # blossom-server
 
+## 6.1.6
+
+### Patch Changes
+
+- Chore: verify Cloudflare Git-connected continuous deployment path.
+
 ## 6.1.5
 
 ### Patch Changes
