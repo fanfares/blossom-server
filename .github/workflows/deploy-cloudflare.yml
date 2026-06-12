@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - staging
   workflow_dispatch:
 
 concurrency:
