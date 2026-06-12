@@ -484,4 +484,4 @@ untouched.
 
 ## License
 
-MIT
+CC-BY-SA
