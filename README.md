@@ -192,22 +192,6 @@ If you are running Docker yourself, one practical setup is Cloudflare Tunnel:
 This gives you Cloudflare TLS, DDoS protection, and caching at the edge while
 Blossom remains the origin.
 
-## GitHub Auto Deploy (Cloudflare)
-
-This repository includes a GitHub Actions workflow at
-`.github/workflows/deploy-cloudflare.yml`.
-
-It deploys automatically on every push to `master` and can also be run
-manually from the Actions tab.
-
-Set these repository secrets in GitHub before using it:
-
-- `CLOUDFLARE_API_TOKEN` (token with Workers/Containers deploy permissions)
-- `CLOUDFLARE_ACCOUNT_ID` (your Cloudflare account ID)
-
-Once these are set, pushing to `master` will trigger `wrangler deploy --config wrangler.jsonc`.
-The workflow now validates these secrets explicitly and fails early with a clear message if either is missing.
-
 ## Cloudflare Containers: Durable Metadata
 
 When running in Cloudflare Containers, do not keep metadata in local SQLite.
