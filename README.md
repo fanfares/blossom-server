@@ -206,6 +206,7 @@ Set these repository secrets in GitHub before using it:
 - `CLOUDFLARE_ACCOUNT_ID` (your Cloudflare account ID)
 
 Once these are set, pushing to `master` will trigger `wrangler deploy --config wrangler.jsonc`.
+The workflow now validates these secrets explicitly and fails early with a clear message if either is missing.
 
 ## Cloudflare Containers: Durable Metadata
 
