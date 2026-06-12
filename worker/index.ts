@@ -1,6 +1,7 @@
 import { Container } from "@cloudflare/containers";
 
 const HEX_64_RE = /^[a-f0-9]{64}$/;
+const DEPLOY_PROBE = "cd-check-2026-06-12-b";
 
 type Env = {
   CF_ACCOUNT_ID: string;
@@ -188,6 +189,7 @@ async function handleMetadataApi(
       blobCount: Number(row?.blobCount ?? 0),
       totalSize: Number(row?.totalSize ?? 0),
       dailyUploads: Number(row?.dailyUploads ?? 0),
+      deployProbe: DEPLOY_PROBE,
     });
   }
 
