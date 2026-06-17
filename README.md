@@ -92,36 +92,66 @@ directory). Environment variables can be substituted anywhere in the file using
 
 ### Key Options
 
-| Key                          | Default          | Description                                                                                                            |
-| ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `port`                       | `3000`           | TCP port to listen on                                                                                                  |
-| `host`                       | `0.0.0.0`        | Bind interface (`127.0.0.1` for loopback-only behind a proxy)                                                          |
-| `publicDomain`               | _(Host header)_  | Bare hostname this server is publicly reachable at, used in blob URLs and BUD-11 server-tag validation (no `https://`) |
-| `database.path`              | `data/sqlite.db` | Local SQLite database path                                                                                             |
-| `database.url`               | —                | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                       |
-| `storage.backend`            | `local`          | Storage backend: `local`, `s3`, or `r2`                                                                                |
-| `storage.local.dir`          | `./data/blobs`   | Directory for blob files (local backend)                                                                               |
-| `storage.removeWhenNoOwners` | `false`          | Delete blobs with no owners on each prune cycle, regardless of expiry rules                                            |
-| `upload.enabled`             | `true`           | Enable `PUT /upload`                                                                                                   |
-| `upload.requireAuth`         | `true`           | Require Nostr auth for uploads                                                                                         |
-| `upload.maxSize`             | `2147483648`     | Maximum upload size in bytes (2 GB)                                                                                    |
-| `upload.workers`             | `0`              | Upload worker threads (0 = one per CPU core)                                                                           |
-| `upload.requirePubkeyInRule` | `false`          | Reject uploads unless the uploader's pubkey appears in a storage rule                                                  |
-| `mirror.enabled`             | `true`           | Enable `PUT /mirror` (BUD-04)                                                                                          |
-| `mirror.connectTimeout`      | `30000`          | Timeout (ms) to connect to the origin; 0 = no limit                                                                    |
-| `mirror.bodyTimeout`         | `0`              | Timeout (ms) for full body transfer from origin; 0 = no limit                                                          |
-| `delete.requireAuth`         | `true`           | Require Nostr auth for deletes                                                                                         |
-| `list.enabled`               | `false`          | Enable `GET /list/:pubkey` (BUD-02); disabled by default                                                               |
-| `list.requireAuth`           | `false`          | Require Nostr auth for list requests                                                                                   |
-| `list.allowListOthers`       | `true`           | Allow listing blobs belonging to a different pubkey                                                                    |
-| `media.enabled`              | `false`          | Enable `PUT /media` (BUD-05); requires ffmpeg for video                                                                |
-| `report.enabled`             | `true`           | Enable `PUT /report` (BUD-09)                                                                                          |
-| `landing.enabled`            | `true`           | Enable the landing page at `/`                                                                                         |
-| `landing.title`              | `Blossom Server` | Page title shown in `<title>` and `<h1>`                                                                               |
-| `dashboard.enabled`          | `false`          | Enable the admin dashboard at `/admin`                                                                                 |
+| Key                                    | Default          | Description                                                                                                            |
+| -------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `port`                                 | `3000`           | TCP port to listen on                                                                                                  |
+| `host`                                 | `0.0.0.0`        | Bind interface (`127.0.0.1` for loopback-only behind a proxy)                                                          |
+| `publicDomain`                         | _(Host header)_  | Bare hostname this server is publicly reachable at, used in blob URLs and BUD-11 server-tag validation (no `https://`) |
+| `database.path`                        | `data/sqlite.db` | Local SQLite database path                                                                                             |
+| `database.url`                         | —                | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                       |
+| `storage.backend`                      | `local`          | Storage backend: `local`, `s3`, or `r2`                                                                                |
+| `storage.local.dir`                    | `./data/blobs`   | Directory for blob files (local backend)                                                                               |
+| `storage.removeWhenNoOwners`           | `false`          | Delete blobs with no owners on each prune cycle, regardless of expiry rules                                            |
+| `upload.enabled`                       | `true`           | Enable `PUT /upload`                                                                                                   |
+| `upload.requireAuth`                   | `true`           | Require Nostr auth for uploads                                                                                         |
+| `upload.maxSize`                       | `2147483648`     | Maximum upload size in bytes (2 GB)                                                                                    |
+| `upload.workers`                       | `0`              | Upload worker threads (0 = one per CPU core)                                                                           |
+| `upload.requirePubkeyInRule`           | `false`          | Reject uploads unless the uploader's pubkey appears in a storage rule                                                  |
+| `payment.enabled`                      | `false`          | Enable paid request flow (BUD-07)                                                                                      |
+| `payment.chargeUpload`                 | `false`          | Require payment for `HEAD/PUT /upload`                                                                                 |
+| `payment.chargeMedia`                  | `false`          | Require payment for `HEAD/PUT /media`                                                                                  |
+| `payment.cashu.mode`                   | `direct`         | `direct` = use configured mint + payout Lightning Address; `bridge` = external verifier service                        |
+| `payment.cashu.mintUrl`                | minibits mint    | Accepted Cashu mint in direct mode                                                                                     |
+| `payment.cashu.payoutLightningAddress` | WoS address      | Lightning Address that receives melted funds in direct mode                                                            |
+| `payment.cashu.requestUrl`             | `""`             | Bridge mode: endpoint used to create Cashu/Lightning payment challenges                                                |
+| `payment.cashu.verifyUrl`              | `""`             | Bridge mode: endpoint used to verify Cashu payment proofs                                                              |
+| `mirror.enabled`                       | `true`           | Enable `PUT /mirror` (BUD-04)                                                                                          |
+| `mirror.connectTimeout`                | `30000`          | Timeout (ms) to connect to the origin; 0 = no limit                                                                    |
+| `mirror.bodyTimeout`                   | `0`              | Timeout (ms) for full body transfer from origin; 0 = no limit                                                          |
+| `delete.requireAuth`                   | `true`           | Require Nostr auth for deletes                                                                                         |
+| `list.enabled`                         | `false`          | Enable `GET /list/:pubkey` (BUD-02); disabled by default                                                               |
+| `list.requireAuth`                     | `false`          | Require Nostr auth for list requests                                                                                   |
+| `list.allowListOthers`                 | `true`           | Allow listing blobs belonging to a different pubkey                                                                    |
+| `media.enabled`                        | `false`          | Enable `PUT /media` (BUD-05); requires ffmpeg for video                                                                |
+| `report.enabled`                       | `true`           | Enable `PUT /report` (BUD-09)                                                                                          |
+| `landing.enabled`                      | `true`           | Enable the landing page at `/`                                                                                         |
+| `landing.title`                        | `Blossom Server` | Page title shown in `<title>` and `<h1>`                                                                               |
+| `dashboard.enabled`                    | `false`          | Enable the admin dashboard at `/admin`                                                                                 |
 
 For all options with inline documentation, see
 [`config.example.yml`](config.example.yml).
+
+### Paid Uploads (BUD-07)
+
+This server supports a configurable paid-request gate for uploads/media:
+
+- `HEAD /upload` / `HEAD /media` can return `402 Payment Required` with
+  `X-Cashu` and optional `X-Lightning`.
+- `PUT /upload` / `PUT /media` require a payment proof in `X-Cashu`
+  (`cashuB...`) when charging is enabled.
+- Invalid or missing proof on `PUT` returns `400` with `X-Reason`.
+
+`direct` mode is configured out-of-the-box for:
+
+- Mint: `https://mint.minibits.cash/Bitcoin`
+- Payout Lightning Address: `iefan@walletofsatoshi.com`
+
+In direct mode, the server issues a mint invoice (shown in `X-Lightning`) and,
+after the client submits a Cashu proof token in `X-Cashu`, melts the received
+ecash to the configured Lightning Address.
+
+If you prefer custom infrastructure, switch to `bridge` mode and implement your
+own `payment.cashu.requestUrl` and `payment.cashu.verifyUrl` handlers.
 
 ### S3 Storage Backend
 

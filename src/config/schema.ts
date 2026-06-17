@@ -175,6 +175,127 @@ const UploadSchema = z.object({
     ),
 });
 
+const PaymentPricingSchema = z.object({
+  baseSats: z
+    .number()
+    .int()
+    .min(0)
+    .default(0)
+    .describe("Fixed sats charged per paid request."),
+  satsPerMiB: z
+    .number()
+    .int()
+    .min(0)
+    .default(1)
+    .describe("Additional sats charged per started MiB of payload size."),
+  minSats: z
+    .number()
+    .int()
+    .min(0)
+    .default(1)
+    .describe("Minimum sats charged when payment is enabled."),
+});
+
+const CashuPaymentSchema = z.object({
+  mode: z
+    .enum(["bridge", "direct"])
+    .default("direct")
+    .describe(
+      "Payment backend mode. 'direct' talks to a Cashu mint and melts received tokens to your Lightning address. 'bridge' delegates challenge/verify to external HTTP endpoints.",
+    ),
+  enabled: z
+    .boolean()
+    .default(false)
+    .describe("Enable Cashu-backed payment checks for paid endpoints."),
+  mintUrl: z
+    .string()
+    .default("https://mint.minibits.cash/Bitcoin")
+    .describe(
+      "Cashu mint base URL used in direct mode. This server will accept tokens from this mint and request mint quotes from it.",
+    ),
+  payoutLightningAddress: z
+    .string()
+    .default("iefan@walletofsatoshi.com")
+    .describe(
+      "Lightning Address that receives funds in direct mode. The server melts received Cashu tokens to invoices requested from this address.",
+    ),
+  payoutComment: z
+    .string()
+    .default("Blossom upload payment")
+    .describe(
+      "Comment passed to the Lightning Address callback when requesting payout invoices in direct mode.",
+    ),
+  payoutPollIntervalMs: z
+    .number()
+    .int()
+    .min(100)
+    .default(1000)
+    .describe(
+      "Polling interval in milliseconds when waiting for asynchronous melt completion in direct mode.",
+    ),
+  payoutPollMaxAttempts: z
+    .number()
+    .int()
+    .min(1)
+    .default(20)
+    .describe(
+      "Maximum number of melt quote state checks in direct mode before timing out.",
+    ),
+  requestUrl: z
+    .string()
+    .default("")
+    .describe(
+      "Bridge mode only. HTTP endpoint that creates a payment challenge. It must return JSON with at least { xCashu }, and optionally { xLightning, paymentId, reason, expiresAt }.",
+    ),
+  verifyUrl: z
+    .string()
+    .default("")
+    .describe(
+      "Bridge mode only. HTTP endpoint that verifies a client payment proof. It must accept JSON and return { ok: boolean, reason?: string }.",
+    ),
+  bearerToken: z
+    .string()
+    .default("")
+    .describe(
+      "Optional bearer token sent to requestUrl/verifyUrl. Use ${ENV_VAR} interpolation to avoid hardcoding secrets.",
+    ),
+  timeoutMs: z
+    .number()
+    .int()
+    .min(100)
+    .default(10_000)
+    .describe("Timeout in milliseconds for calls to the Cashu bridge API."),
+});
+
+const PaymentSchema = z.object({
+  enabled: z
+    .boolean()
+    .default(false)
+    .describe("Enable paid-request flow (BUD-07)."),
+  chargeUpload: z
+    .boolean()
+    .default(false)
+    .describe("Require payment for /upload preflight and PUT /upload."),
+  chargeMedia: z
+    .boolean()
+    .default(false)
+    .describe("Require payment for /media preflight and PUT /media."),
+  bypassPubkeys: z
+    .array(z.string())
+    .default([])
+    .describe(
+      "Uploader pubkeys that bypass payment checks (useful for operator accounts).",
+    ),
+  pricing: PaymentPricingSchema.optional()
+    .transform((v) => v ?? PaymentPricingSchema.parse({}))
+    .describe("Simple upload pricing model in sats."),
+  cashu: CashuPaymentSchema.optional()
+    .transform((v) => v ?? CashuPaymentSchema.parse({}))
+    .describe(
+      "Cashu bridge integration for challenge issuance and proof checks.",
+    ),
+});
+
 const ImageOptimizeSchema = z.object({
   quality: z
     .number()
@@ -548,6 +669,9 @@ export const ConfigSchema = z
     upload: UploadSchema.optional()
       .transform((v) => v ?? UploadSchema.parse({}))
       .describe("Upload endpoint settings (BUD-02 / BUD-06)."),
+    payment: PaymentSchema.optional()
+      .transform((v) => v ?? PaymentSchema.parse({}))
+      .describe("Paid endpoint settings (BUD-07)."),
     mirror: MirrorSchema.optional()
       .transform((v) => v ?? MirrorSchema.parse({}))
       .describe("Mirror endpoint settings (BUD-04)."),
@@ -594,3 +718,4 @@ export type ReportConfig = z.infer<typeof ReportSchema>;
 export type ImageOptimizeConfig = z.infer<typeof ImageOptimizeSchema>;
 export type VideoOptimizeConfig = z.infer<typeof VideoOptimizeSchema>;
 export type MediaConfig = z.infer<typeof MediaSchema>;
+export type PaymentConfig = z.infer<typeof PaymentSchema>;

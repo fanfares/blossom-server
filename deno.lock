@@ -12,6 +12,7 @@
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/ulid@1": "1.0.0",
     "jsr:@std/yaml@^1.0.12": "1.0.12",
+    "npm:@cashu/cashu-ts@^4.5.1": "4.5.1",
     "npm:@cloudflare/containers@~0.3.4": "0.3.6",
     "npm:@libsql/client@*": "0.17.0",
     "npm:@libsql/client@0.17": "0.17.0",
@@ -66,6 +67,15 @@
   "npm": {
     "@borewit/text-codec@0.2.2": {
       "integrity": "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="
+    },
+    "@cashu/cashu-ts@4.5.1": {
+      "integrity": "sha512-AGB7wh1SC0iANRSsdwM091eoS1uVhSf/Qf2VM3plw8EzlYjiFkwSa9X0Nh6NpsE1VVeAuPpNInvpznvElp2Q0A==",
+      "dependencies": [
+        "@noble/curves@2.2.0",
+        "@noble/hashes@2.2.0",
+        "@scure/base@2.2.0",
+        "@scure/bip32@2.2.0"
+      ]
     },
     "@cloudflare/containers@0.3.6": {
       "integrity": "sha512-8RrbK/Et165gjvXccui3pgkUuySVWysTC6bJRXfgqmbCA2vAmh8pm7cAKDh2nZFR/GSjW4BgxeKpffCTD8SJEg=="
@@ -335,6 +345,12 @@
         "@noble/hashes@2.0.1"
       ]
     },
+    "@noble/curves@2.2.0": {
+      "integrity": "sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ==",
+      "dependencies": [
+        "@noble/hashes@2.2.0"
+      ]
+    },
     "@noble/hashes@1.3.1": {
       "integrity": "sha512-EbqwksQwz9xDRGfDST86whPBgM65E0OH/pCgqW0GBVzO22bNE+NuIbeTb714+IfSjU3aRk47EUvXIb5bTsenKA=="
     },
@@ -347,6 +363,9 @@
     "@noble/hashes@2.0.1": {
       "integrity": "sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw=="
     },
+    "@noble/hashes@2.2.0": {
+      "integrity": "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="
+    },
     "@scure/base@1.1.1": {
       "integrity": "sha512-ZxOhsSyxYwLJj3pLZCefNitxsj093tb2vq90mp2txoYeBqbcjDjqFhyM8eUjq/uFm6zJ+mUuqxlS2FkuSY1MTA=="
     },
@@ -355,6 +374,9 @@
     },
     "@scure/base@2.0.0": {
       "integrity": "sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w=="
+    },
+    "@scure/base@2.2.0": {
+      "integrity": "sha512-b8XEupJibegiXV+tDUseI8oLQc8ei3d/4Jkb2RpbHh3MfE054ov3uIz2dhFkB3FI8iwYkEh0gGCApkrYggkPNg=="
     },
     "@scure/bip32@1.3.1": {
       "integrity": "sha512-osvveYtyzdEVbt3OfwwXFr4P2iVBL5u1Q3q4ONBfDY/UpOuXmOlbgwc1xECEboY8wIays8Yt6onaWMUdUbfl0A==",
@@ -370,6 +392,14 @@
         "@noble/curves@2.0.1",
         "@noble/hashes@2.0.1",
         "@scure/base@2.0.0"
+      ]
+    },
+    "@scure/bip32@2.2.0": {
+      "integrity": "sha512-zFr7t2F+a9+5tB7QbarF2HQNYrgjCNaoLAupZdKkrFMYMozJf5zqH2WJCQibMzm1qQ0QogrxVGO3qXfQDYMaQg==",
+      "dependencies": [
+        "@noble/curves@2.2.0",
+        "@noble/hashes@2.2.0",
+        "@scure/base@2.2.0"
       ]
     },
     "@scure/bip39@1.2.1": {
@@ -703,6 +733,7 @@
       "jsr:@std/path@^1.1.4",
       "jsr:@std/ulid@1",
       "jsr:@std/yaml@^1.0.12",
+      "npm:@cashu/cashu-ts@^4.5.1",
       "npm:@libsql/client@0.17",
       "npm:applesauce-common@^5.2.0",
       "npm:applesauce-core@^5.2.0",

@@ -165,6 +165,52 @@ upload:
   requirePubkeyInRule: false
 
 # ---------------------------------------------------------------------------
+# Paid uploads / media (BUD-07)
+# ---------------------------------------------------------------------------
+
+payment:
+  # Master switch for BUD-07 paid requests.
+  enabled: false
+
+  # Charge for PUT/HEAD /upload and PUT/HEAD /media.
+  chargeUpload: false
+  chargeMedia: false
+
+  # Pubkeys that bypass payment checks (e.g. your own operator pubkey).
+  bypassPubkeys: []
+
+  # Pricing model in sats:
+  # amount = max(minSats, baseSats + ceil(sizeBytes / 1MiB) * satsPerMiB)
+  pricing:
+    baseSats: 0
+    satsPerMiB: 1
+    minSats: 1
+
+  # Cashu integration options:
+  #
+  # mode: direct
+  #   - Creates mint quotes at mintUrl for the user to pay (invoice in X-Lightning)
+  #   - Accepts X-Cashu cashuB proof tokens on PUT
+  #   - Melts received tokens to payoutLightningAddress
+  #
+  # mode: bridge
+  #   - Delegates request+verify to your external service via requestUrl/verifyUrl
+  cashu:
+    enabled: false
+    mode: direct
+    mintUrl: "https://mint.minibits.cash/Bitcoin"
+    payoutLightningAddress: "iefan@walletofsatoshi.com"
+    payoutComment: "Blossom upload payment"
+    payoutPollIntervalMs: 1000
+    payoutPollMaxAttempts: 20
+
+    # Bridge mode only (ignored when mode=direct)
+    requestUrl: "${CASHU_BRIDGE_REQUEST_URL}"
+    verifyUrl: "${CASHU_BRIDGE_VERIFY_URL}"
+    bearerToken: "${CASHU_BRIDGE_BEARER_TOKEN}"
+    timeoutMs: 10000
+
+# ---------------------------------------------------------------------------
 # Mirror  (BUD-04)
 # ---------------------------------------------------------------------------
 

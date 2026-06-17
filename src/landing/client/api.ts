@@ -8,6 +8,10 @@ export interface PreflightResult {
    * human-readable error message — never parse it to derive state.
    */
   reason?: string;
+  xCashu?: string;
+  xLightning?: string;
+  paymentId?: string;
+  paymentExpires?: string;
 }
 
 /** Error subclass that preserves the HTTP status code for retry logic. */
@@ -37,6 +41,7 @@ export async function preflightUpload(
   contentType: string,
   contentLength: number,
   authHeader?: string,
+  paymentId?: string,
 ): Promise<PreflightResult> {
   const headers: Record<string, string> = {
     "X-SHA-256": sha256,
@@ -44,11 +49,16 @@ export async function preflightUpload(
     "X-Content-Length": String(contentLength),
   };
   if (authHeader) headers["Authorization"] = authHeader;
+  if (paymentId) headers["X-Payment-Id"] = paymentId;
 
   const res = await fetch(endpoint, { method: "HEAD", headers });
   return {
     status: res.status,
     reason: res.headers.get("X-Reason") ?? undefined,
+    xCashu: res.headers.get("X-Cashu") ?? undefined,
+    xLightning: res.headers.get("X-Lightning") ?? undefined,
+    paymentId: res.headers.get("X-Payment-Id") ?? undefined,
+    paymentExpires: res.headers.get("X-Payment-Expires") ?? undefined,
   };
 }
 
