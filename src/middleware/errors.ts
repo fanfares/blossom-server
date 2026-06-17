@@ -9,6 +9,7 @@ export function errorResponse(
   status:
     | 400
     | 401
+    | 402
     | 403
     | 404
     | 409

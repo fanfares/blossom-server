@@ -39,6 +39,7 @@ import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import { getBaseUrl, getBlobUrl } from "../utils/url.ts";
 import { getFileRule } from "../prune/rules.ts";
+import { PaymentService } from "../payments/service.ts";
 
 /** BUD-02 Blob Descriptor */
 interface BlobDescriptor {
@@ -53,6 +54,7 @@ export function buildUploadRouter(
   db: Client,
   storage: IBlobStorage,
   config: Config,
+  payments: PaymentService,
 ): Hono<{ Variables: BlossomVariables }> {
   const app = new Hono<{ Variables: BlossomVariables }>();
 
@@ -99,6 +101,24 @@ export function buildUploadRouter(
         413,
         `File too large. Maximum allowed size is ${config.upload.maxSize} bytes`,
       );
+    }
+
+    try {
+      const payment = await payments.requireForHead(ctx, {
+        endpoint: "upload",
+        sizeBytes: size,
+        mimeType: xContentType,
+        pubkey: ctx.get("auth")?.pubkey,
+        sha256: xSha256,
+      }, ctx.req.header("x-payment-id") ?? null);
+      if (!payment.ok && payment.response) {
+        return payment.response;
+      }
+    } catch (err) {
+      const msg = err instanceof Error
+        ? err.message
+        : "Payment service unavailable";
+      return errorResponse(ctx, 503, msg);
     }
 
     // --- Storage rule check (preflight) ---
@@ -285,6 +305,32 @@ export function buildUploadRouter(
           } satisfies BlobDescriptor,
         );
       }
+    }
+
+    // --- 6b. BUD-07 payment gate (before body streaming) ---
+    try {
+      const payment = await payments.requireForPut(
+        ctx,
+        {
+          endpoint: "upload",
+          sizeBytes: contentLength,
+          mimeType,
+          pubkey: auth?.pubkey,
+          sha256: xSha256,
+        },
+        ctx.req.header("x-cashu") ?? null,
+        ctx.req.header("x-payment-id") ?? null,
+      );
+      if (!payment.ok && payment.response) {
+        await ctx.req.raw.body?.cancel();
+        return payment.response;
+      }
+    } catch (err) {
+      await ctx.req.raw.body?.cancel();
+      const msg = err instanceof Error
+        ? err.message
+        : "Payment service unavailable";
+      return errorResponse(ctx, 503, msg);
     }
 
     // --- 7. Acquire worker (503 if pool full — no queue) ---

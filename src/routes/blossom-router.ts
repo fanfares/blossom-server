@@ -25,6 +25,7 @@ import { buildMediaRouter } from "./media.ts";
 import { buildDeleteRouter } from "./delete.ts";
 import { buildListRouter } from "./list.ts";
 import { buildReportRouter } from "./report.ts";
+import { PaymentService } from "../payments/service.ts";
 
 export function buildBlossomRouter(
   db: Client,
@@ -32,6 +33,7 @@ export function buildBlossomRouter(
   config: Config,
 ): Hono<{ Variables: BlossomVariables }> {
   const app = new Hono<{ Variables: BlossomVariables }>();
+  const payments = new PaymentService(config, db);
 
   // BUD-01-compliant error handler: all errors from Blossom route handlers are
   // returned as text/plain with an X-Reason header. This only fires for routes
@@ -58,13 +60,13 @@ export function buildBlossomRouter(
 
   // BUD-02 + BUD-06: PUT /upload, HEAD /upload
   // Mounted before blob catch-all so HEAD /upload is not caught by /:sha256.
-  app.route("/", buildUploadRouter(db, storage, config));
+  app.route("/", buildUploadRouter(db, storage, config, payments));
 
   // BUD-04: PUT /mirror
   app.route("/", buildMirrorRouter(db, storage, config));
 
   // BUD-05: PUT /media, HEAD /media
-  app.route("/", buildMediaRouter(db, storage, config));
+  app.route("/", buildMediaRouter(db, storage, config, payments));
 
   // BUD-02: DELETE /:sha256
   app.route("/", buildDeleteRouter(db, storage, config));

@@ -58,6 +58,7 @@ import type { IBlobStorage } from "../storage/interface.ts";
 import { getBaseUrl, getBlobUrl } from "../utils/url.ts";
 import { getPool, WorkerJobError } from "../workers/pool.ts";
 import type { Config } from "../config/schema.ts";
+import { PaymentService } from "../payments/service.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,6 +131,7 @@ export function buildMediaRouter(
   db: Client,
   storage: IBlobStorage,
   config: Config,
+  payments: PaymentService,
 ): Hono<{ Variables: BlossomVariables }> {
   const app = new Hono<{ Variables: BlossomVariables }>();
 
@@ -139,7 +141,7 @@ export function buildMediaRouter(
 
   // Hono does not support HEAD-only routes directly; register as GET and
   // the framework strips the body automatically for HEAD requests.
-  app.get("/media", (ctx) => {
+  app.get("/media", async (ctx) => {
     // --- 1. Feature flag ---
     if (!config.media.enabled) {
       return errorResponse(
@@ -170,6 +172,9 @@ export function buildMediaRouter(
       );
     }
 
+    const xContentType = ctx.req.header("x-content-type") ??
+      ctx.req.header("content-type");
+
     // --- 4. Content-Length preflight check ---
     const xContentLength = ctx.req.header("x-content-length") ??
       ctx.req.header("content-length");
@@ -182,11 +187,27 @@ export function buildMediaRouter(
           `File too large. Maximum allowed size is ${config.media.maxSize} bytes`,
         );
       }
+
+      try {
+        const payment = await payments.requireForHead(ctx, {
+          endpoint: "media",
+          sizeBytes: size,
+          mimeType: xContentType ?? "application/octet-stream",
+          pubkey: ctx.get("auth")?.pubkey,
+          sha256: ctx.req.header("x-sha-256")?.toLowerCase() ?? null,
+        }, ctx.req.header("x-payment-id") ?? null);
+        if (!payment.ok && payment.response) {
+          return payment.response;
+        }
+      } catch (err) {
+        const msg = err instanceof Error
+          ? err.message
+          : "Payment service unavailable";
+        return errorResponse(ctx, 503, msg);
+      }
     }
 
     // --- 5. Content-Type preflight check ---
-    const xContentType = ctx.req.header("x-content-type") ??
-      ctx.req.header("content-type");
     if (xContentType) {
       const mimeType = xContentType.split(";")[0].trim();
       const mimeRule = getFileRule(
@@ -325,6 +346,32 @@ export function buildMediaRouter(
         await ctx.req.raw.body?.cancel();
         debug(debugPrefix, `rejected: invalid X-SHA-256 format — "${xSha256}"`);
         return errorResponse(ctx, 400, "Invalid X-SHA-256 header format");
+      }
+
+      // --- 6b. BUD-07 payment gate (before body streaming) ---
+      try {
+        const payment = await payments.requireForPut(
+          ctx,
+          {
+            endpoint: "media",
+            sizeBytes: contentLength,
+            mimeType,
+            pubkey: auth?.pubkey,
+            sha256: xSha256,
+          },
+          ctx.req.header("x-cashu") ?? null,
+          ctx.req.header("x-payment-id") ?? null,
+        );
+        if (!payment.ok && payment.response) {
+          await ctx.req.raw.body?.cancel();
+          return payment.response;
+        }
+      } catch (err) {
+        await ctx.req.raw.body?.cancel();
+        const msg = err instanceof Error
+          ? err.message
+          : "Payment service unavailable";
+        return errorResponse(ctx, 503, msg);
       }
 
       // --- 7. Pool availability ---

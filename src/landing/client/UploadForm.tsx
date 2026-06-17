@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "@hono/hono/jsx/dom";
 import type { BlobDescriptor, FileStatus, UploadFile } from "./types.ts";
 import { blobExists, HttpError, preflightUpload, xhrUpload } from "./api.ts";
 import { hashBatch, MAX_X_TAGS_PER_EVENT, signBatch } from "./auth.ts";
-import { createClientId, friendlyErrorMessage, isMediaFile } from "./helpers.ts";
+import {
+  createClientId,
+  friendlyErrorMessage,
+  isMediaFile,
+} from "./helpers.ts";
 import { FileRow } from "./FileRow.tsx";
 
 const MAX_RETRIES = 3;
@@ -33,9 +37,19 @@ export function UploadForm({
   const [isDragging, setIsDragging] = useState(false);
   const [globalOptimize, setGlobalOptimize] = useState(false);
   const [concurrency, setConcurrency] = useState(3);
+  const [lightningInvoice, setLightningInvoice] = useState("");
+  const [paymentId, setPaymentId] = useState("");
+  const [paymentNotice, setPaymentNotice] = useState("");
+  const [paymentPhase, setPaymentPhase] = useState<
+    "idle" | "invoice" | "verifying" | "verified"
+  >("idle");
+  const [pollSeq, setPollSeq] = useState(0);
+  const pollInFlight = useRef(false);
   const activeCount = useRef<number>(0);
   const queueRef = useRef<UploadFile[]>([]);
   queueRef.current = queue;
+
+  const isPaymentGateActive = Boolean(lightningInvoice && paymentId);
 
   useEffect(() => {
     onQueueChange(queue.length > 0);
@@ -90,6 +104,10 @@ export function UploadForm({
     navigator.clipboard.writeText(url).catch(() => {});
   }, []);
 
+  const copyToClipboard = useCallback((value: string) => {
+    navigator.clipboard.writeText(value).catch(() => {});
+  }, []);
+
   const handleDrop = useCallback(
     (e: DragEvent) => {
       e.preventDefault();
@@ -125,7 +143,9 @@ export function UploadForm({
       authHeader: string | undefined,
     ): Promise<boolean> => {
       const endpoint = uf.optimize ? "/media" : "/upload";
-      patchFile(uf.id, { status: "checking" });
+      if (!isPaymentGateActive) {
+        patchFile(uf.id, { status: "checking" });
+      }
 
       // Dedup check: HEAD /<sha256> tells us whether the server already has
       // this blob. /media optimizes the original, so the output hash is
@@ -149,26 +169,50 @@ export function UploadForm({
       }
 
       try {
-        const { status, reason } = await preflightUpload(
+        const hadPaymentId = Boolean(paymentId);
+        const pre = await preflightUpload(
           endpoint,
           sha256,
           uf.file.type || "application/octet-stream",
           uf.file.size,
           authHeader,
+          paymentId || undefined,
         );
 
-        if (status === 200) return true;
+        if (pre.status === 402) {
+          if (pre.xLightning) setLightningInvoice(pre.xLightning);
+          if (pre.paymentId) setPaymentId(pre.paymentId);
+          setPaymentNotice(pre.reason ?? "Waiting for payment verification");
+          setPaymentPhase(hadPaymentId ? "verifying" : "invoice");
+
+          patchFile(uf.id, {
+            // Keep the file queued so the user can retry after payment.
+            status: "pending",
+            error: hadPaymentId
+              ? "Waiting for payment verification..."
+              : "Payment required. Pay the invoice below.",
+          });
+          return false;
+        }
+
+        if (pre.status === 200) {
+          if (paymentId) {
+            setPaymentPhase("verified");
+            setPaymentNotice("Payment verified. Uploading now...");
+          }
+          return true;
+        }
 
         patchFile(uf.id, {
           status: "skipped",
-          error: friendlyErrorMessage(status, reason),
+          error: friendlyErrorMessage(pre.status, pre.reason),
         });
         return false;
       } catch {
         return true;
       }
     },
-    [patchFile],
+    [patchFile, paymentId, isPaymentGateActive],
   );
 
   /** Upload a single file with auto-retry for 429/503. */
@@ -179,6 +223,7 @@ export function UploadForm({
         "Content-Type": uf.file.type || "application/octet-stream",
       };
       if (authHeader) headers["Authorization"] = authHeader;
+      if (paymentId) headers["X-Payment-Id"] = paymentId;
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -199,6 +244,15 @@ export function UploadForm({
           });
           return;
         } catch (err) {
+          if (err instanceof HttpError && err.status === 402) {
+            patchFile(uf.id, {
+              status: "pending",
+              error:
+                "Payment still pending. Wait for invoice confirmation, then click Upload again.",
+            });
+            return;
+          }
+
           if (
             err instanceof HttpError && isRetryable(err.status) &&
             attempt < MAX_RETRIES
@@ -217,7 +271,7 @@ export function UploadForm({
         }
       }
     },
-    [patchFile],
+    [patchFile, paymentId],
   );
 
   const runQueue = useCallback(async () => {
@@ -232,7 +286,15 @@ export function UploadForm({
     if (!needsAuth) {
       const hashes = await hashBatch(
         pending,
-        (id, status) => patchFile(id, { status }),
+        (id, status) => {
+          if (
+            isPaymentGateActive &&
+            (status === "hashing" || status === "checking")
+          ) {
+            return;
+          }
+          patchFile(id, { status });
+        },
       );
 
       // Phase 1: Preflight all files concurrently
@@ -287,14 +349,25 @@ export function UploadForm({
 
       const hashes = await hashBatch(
         group,
-        (id, status) => patchFile(id, { status }),
+        (id, status) => {
+          if (
+            isPaymentGateActive &&
+            (status === "hashing" || status === "checking" ||
+              status === "signing")
+          ) {
+            return;
+          }
+          patchFile(id, { status });
+        },
       );
 
       for (let i = 0; i < group.length; i += MAX_X_TAGS_PER_EVENT) {
         const batch = group.slice(i, i + MAX_X_TAGS_PER_EVENT);
         const batchHashes = batch.map((f) => hashes.get(f.id)!);
 
-        for (const uf of batch) patchFile(uf.id, { status: "signing" });
+        if (!isPaymentGateActive) {
+          for (const uf of batch) patchFile(uf.id, { status: "signing" });
+        }
 
         let authHeader: string;
         try {
@@ -342,6 +415,7 @@ export function UploadForm({
     patchFile,
     uploadOne,
     checkOne,
+    isPaymentGateActive,
   ]);
 
   const handleUpload = useCallback(() => runQueue(), [runQueue]);
@@ -370,6 +444,57 @@ export function UploadForm({
   const allDone = queue.length > 0 &&
     queue.every((f) => TERMINAL_STATUSES.includes(f.status));
   const canUpload = hasPending && !isWorking;
+
+  // Self-rescheduling payment verification poll.
+  // After each attempt (paid or not), pollSeq increments which re-triggers this
+  // effect and schedules the next 2.5 s window. Stops when paymentId is cleared.
+  useEffect(() => {
+    if (!paymentId || !lightningInvoice) return;
+    if (!hasPending) return;
+    if (pollInFlight.current) return;
+
+    const delay = pollSeq === 0 ? 500 : 2500;
+    const timer = setTimeout(async () => {
+      if (pollInFlight.current) return;
+      pollInFlight.current = true;
+      setPaymentPhase("verifying");
+      setPaymentNotice("Verifying payment...");
+      try {
+        await runQueue();
+      } catch {
+        // ignore
+      } finally {
+        pollInFlight.current = false;
+        setPollSeq((n) => n + 1);
+      }
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [paymentId, lightningInvoice, hasPending, runQueue, pollSeq]);
+
+  const clearPaymentState = useCallback(() => {
+    setPaymentId("");
+    setLightningInvoice("");
+    setPaymentNotice("");
+    setPaymentPhase("idle");
+    setPollSeq(0);
+    pollInFlight.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (queue.length === 0) {
+      clearPaymentState();
+      return;
+    }
+
+    const hasPendingNow = queue.some((f) => f.status === "pending");
+    const hasWorkingNow = queue.some((f) =>
+      WORKING_STATUSES.includes(f.status)
+    );
+    if (!hasPendingNow && !hasWorkingNow && paymentPhase === "verified") {
+      clearPaymentState();
+    }
+  }, [queue, paymentPhase, clearPaymentState]);
 
   const successUrls = queue
     .filter((f) => (f.status === "done" || f.status === "exists") && f.result)
@@ -463,6 +588,38 @@ export function UploadForm({
 
       {queue.length > 0 && (
         <div class="space-y-2">
+          {lightningInvoice && (
+            <div class="rounded-3xl border border-cyan-400/20 bg-white/[0.03] p-6 space-y-4 shadow-[0_0_0_1px_rgba(34,211,238,0.08),0_18px_48px_rgba(0,0,0,0.45)]">
+              <p class="text-sm text-cyan-100 font-semibold tracking-wide">
+                Payment required before upload
+              </p>
+              <div
+                class="rounded-2xl bg-black/40 border border-white/10 p-4 flex flex-col items-center gap-3 cursor-pointer group"
+                onClick={() => copyToClipboard(lightningInvoice)}
+                title="Click to copy invoice"
+              >
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=340x340&margin=8&data=${
+                    encodeURIComponent(`lightning:${lightningInvoice}`)
+                  }`}
+                  alt="Lightning invoice QR"
+                  class="w-72 h-72 max-w-full rounded-2xl bg-white p-3"
+                />
+                <p class="text-xs text-gray-400 group-hover:text-cyan-300 transition-colors">
+                  Scan to pay · click to copy invoice
+                </p>
+              </div>
+              <div class="text-xs text-cyan-100 rounded-xl border border-cyan-400/25 bg-cyan-500/10 px-3 py-2">
+                {paymentNotice || "Waiting for payment verification..."}
+                {paymentPhase === "verifying" && (
+                  <span class="ml-2 inline-flex items-center gap-2">
+                    <span class="h-2 w-2 rounded-full bg-cyan-300 animate-pulse" />
+                    Verifying payment
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           {queue.map((uf) => (
             <FileRow
               key={uf.id}
