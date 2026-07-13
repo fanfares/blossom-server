@@ -144,8 +144,9 @@ export function authMiddleware(
       debug("[auth]", "Found Nostr auth header");
 
       const raw = authHeader.slice("Nostr ".length).trim();
-      const domain = extractHostname(publicDomain) ??
-        ctx.req.header("host")?.split(":")[0]?.toLowerCase() ?? null;
+      // Never trust the client-controlled Host header for BUD-11 server scoping.
+      // An unset publicDomain intentionally rejects server-scoped tokens.
+      const domain = extractHostname(publicDomain);
 
       debug("[auth]", "Extracted domain", domain);
 
