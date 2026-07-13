@@ -96,7 +96,7 @@ directory). Environment variables can be substituted anywhere in the file using
 | ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `port`                       | `3000`           | TCP port to listen on                                                                                                  |
 | `host`                       | `0.0.0.0`        | Bind interface (`127.0.0.1` for loopback-only behind a proxy)                                                          |
-| `publicDomain`               | _(Host header)_  | Bare hostname this server is publicly reachable at, used in blob URLs and BUD-11 server-tag validation (no `https://`) |
+| `publicDomain`               | `""`             | Canonical bare hostname used in blob URLs and BUD-11 server-tag validation. When empty, descriptor URLs use the request URL but server-scoped auth tokens are rejected; the Host header is never trusted for auth validation (no `https://`) |
 | `database.path`              | `data/sqlite.db` | Local SQLite database path                                                                                             |
 | `database.url`               | —                | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                       |
 | `storage.backend`            | `local`          | Storage backend: `local`, `s3`, or `r2`                                                                                |

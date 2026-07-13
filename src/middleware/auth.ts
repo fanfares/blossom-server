@@ -166,13 +166,13 @@ export function authMiddleware(
       } catch (err) {
         debug("[auth]", "Auth parse error", err);
 
-        // Parse failure: leave auth undefined, let route handlers decide
-        // if auth is required they will reject; if optional they won't care
+        // Parse failure: leave auth undefined and let route handlers decide.
+        // Required routes reject through requireAuth; optional routes continue
+        // anonymously, preserving this middleware's parse-only contract.
         if (!(err instanceof HTTPException)) {
           console.warn("Auth parse error:", err);
           throw new HTTPException(500, { message: "Internal server error" });
-        } // Else pass through the HTTPException
-        else throw err;
+        }
       }
     }
     await next();

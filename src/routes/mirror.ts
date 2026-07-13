@@ -25,7 +25,8 @@
  *
  * Spam / overload protection layers:
  *   L1 — Pre-fetch pool check: no TCP connection opened when workers are full
- *   L2 — Fetch timeout (AbortSignal.timeout): hung origins release worker slots
+ *   L2 — Per-hop header timeout (AbortController timer): hung origin connections
+ *        are aborted before worker dispatch
  *   L3 — Content-Length gate: 413 before any body bytes flow to the worker
  *   L4 — No-queue pool policy: dispatch() → null → 503, zero accumulation
  */

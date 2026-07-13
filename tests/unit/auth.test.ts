@@ -204,7 +204,7 @@ Deno.test("parseAuthEvent: no server tags → valid for any server", () => {
   assertEquals(result.id, event.id);
 });
 
-Deno.test("authMiddleware: unset publicDomain does not trust a matching Host header", async () => {
+Deno.test("authMiddleware: unset publicDomain leaves a Host-scoped token anonymous", async () => {
   const event = makeEvent({
     tags: [
       ["t", "upload"],
@@ -218,6 +218,32 @@ Deno.test("authMiddleware: unset publicDomain does not trust a matching Host hea
     "/",
     (ctx) => ctx.text(ctx.get("auth") ? "authenticated" : "anonymous"),
   );
+
+  const response = await app.request("http://attacker.example/", {
+    headers: {
+      Authorization: `Nostr ${encodeEvent(event)}`,
+      Host: "attacker.example",
+    },
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.text(), "anonymous");
+});
+
+Deno.test("authMiddleware: protected route rejects a Host-scoped token when publicDomain is unset", async () => {
+  const event = makeEvent({
+    tags: [
+      ["t", "upload"],
+      ["expiration", String(Math.floor(Date.now() / 1000) + 600)],
+      ["server", "attacker.example"],
+    ],
+  });
+  const app = new Hono<{ Variables: BlossomVariables }>();
+  app.use("*", authMiddleware(""));
+  app.get("/", (ctx) => {
+    requireAuth(ctx, "upload");
+    return ctx.text("authenticated");
+  });
 
   const response = await app.request("http://attacker.example/", {
     headers: {

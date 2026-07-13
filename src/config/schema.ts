@@ -522,7 +522,8 @@ export const ConfigSchema = z
       .describe(
         'The bare domain name this server is publicly reachable at, e.g. "cdn.example.com". ' +
           "Used to build blob descriptor URLs and to validate the BUD-11 'server' tag in auth events. " +
-          "Defaults to the Host header of the incoming request. Useful behind a reverse proxy. " +
+          "Defaults to empty, which derives descriptor URLs from the request URL but rejects server-scoped BUD-11 tokens. " +
+          "Set this explicitly when clients use BUD-11 server tags; the client-controlled Host header is never trusted for auth validation. " +
           "Do NOT include a protocol scheme (https://) — bare hostname only.",
       ),
     // Deprecated: use the "database" section instead.
