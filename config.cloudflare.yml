@@ -1,8 +1,8 @@
 host: 0.0.0.0
 port: 3000
 
-# Leave empty for workers.dev, set to custom domain when attached.
-publicDomain: "${BLOSSOM_PUBLIC_DOMAIN}"
+# Canonical deployment hostname used for blob URLs and BUD-11 server-tag validation.
+publicDomain: "blossom.fanfares.live"
 
 # Temporary metadata backend for container runtime.
 # D1 is provisioned in wrangler.jsonc, but this Deno process cannot use Worker
@@ -21,14 +21,14 @@ storage:
 
 upload:
   enabled: true
-  requireAuth: false
+  requireAuth: true
 
 mirror:
-  enabled: true
-  requireAuth: false
+  enabled: false
+  requireAuth: true
 
 delete:
-  requireAuth: false
+  requireAuth: true
 
 list:
   enabled: true

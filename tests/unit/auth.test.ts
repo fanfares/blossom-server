@@ -7,6 +7,7 @@
 
 import { assertEquals, assertThrows } from "@std/assert";
 import { encodeBase64Url } from "@std/encoding/base64url";
+import { Hono } from "@hono/hono";
 import { HTTPException } from "@hono/hono/http-exception";
 import {
   finalizeEvent,
@@ -15,6 +16,8 @@ import {
 } from "nostr-tools/pure";
 import type { NostrEvent } from "nostr-tools";
 import {
+  authMiddleware,
+  type BlossomVariables,
   extractHostname,
   parseAuthEvent,
   requireAuth,
@@ -199,6 +202,57 @@ Deno.test("parseAuthEvent: no server tags → valid for any server", () => {
   // Should not throw regardless of serverDomain
   const result = parseAuthEvent(encodeEvent(event), "anything.example.com");
   assertEquals(result.id, event.id);
+});
+
+Deno.test("authMiddleware: unset publicDomain leaves a Host-scoped token anonymous", async () => {
+  const event = makeEvent({
+    tags: [
+      ["t", "upload"],
+      ["expiration", String(Math.floor(Date.now() / 1000) + 600)],
+      ["server", "attacker.example"],
+    ],
+  });
+  const app = new Hono<{ Variables: BlossomVariables }>();
+  app.use("*", authMiddleware(""));
+  app.get(
+    "/",
+    (ctx) => ctx.text(ctx.get("auth") ? "authenticated" : "anonymous"),
+  );
+
+  const response = await app.request("http://attacker.example/", {
+    headers: {
+      Authorization: `Nostr ${encodeEvent(event)}`,
+      Host: "attacker.example",
+    },
+  });
+
+  assertEquals(response.status, 200);
+  assertEquals(await response.text(), "anonymous");
+});
+
+Deno.test("authMiddleware: protected route rejects a Host-scoped token when publicDomain is unset", async () => {
+  const event = makeEvent({
+    tags: [
+      ["t", "upload"],
+      ["expiration", String(Math.floor(Date.now() / 1000) + 600)],
+      ["server", "attacker.example"],
+    ],
+  });
+  const app = new Hono<{ Variables: BlossomVariables }>();
+  app.use("*", authMiddleware(""));
+  app.get("/", (ctx) => {
+    requireAuth(ctx, "upload");
+    return ctx.text("authenticated");
+  });
+
+  const response = await app.request("http://attacker.example/", {
+    headers: {
+      Authorization: `Nostr ${encodeEvent(event)}`,
+      Host: "attacker.example",
+    },
+  });
+
+  assertEquals(response.status, 401);
 });
 
 // ---------------------------------------------------------------------------
