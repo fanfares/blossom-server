@@ -19,6 +19,8 @@ retrieved by their SHA-256 hash. Built with [Deno 2](https://deno.com),
 - **BUD-08** — `nip94` field in all blob descriptor responses
 - **BUD-09** — Blob reports (`PUT /report`) accepting NIP-56 kind:1984 events
 - **BUD-11** — Nostr-signed event authentication (kind 24242)
+- Optional paid annual storage accounts with BUD-07 Lightning challenges,
+  per-pubkey quota accounting, and Cashu mint invoice verification
 - Zero-copy streaming uploads — no body buffering, SHA-256 computed in a
   dedicated worker pool
 - Content-addressed deduplication — re-uploading an existing hash skips the
@@ -92,33 +94,36 @@ directory). Environment variables can be substituted anywhere in the file using
 
 ### Key Options
 
-| Key                          | Default          | Description                                                                                                            |
-| ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `port`                       | `3000`           | TCP port to listen on                                                                                                  |
-| `host`                       | `0.0.0.0`        | Bind interface (`127.0.0.1` for loopback-only behind a proxy)                                                          |
+| Key                          | Default          | Description                                                                                                                                                                                                                                  |
+| ---------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `port`                       | `3000`           | TCP port to listen on                                                                                                                                                                                                                        |
+| `host`                       | `0.0.0.0`        | Bind interface (`127.0.0.1` for loopback-only behind a proxy)                                                                                                                                                                                |
 | `publicDomain`               | `""`             | Canonical bare hostname used in blob URLs and BUD-11 server-tag validation. When empty, descriptor URLs use the request URL but server-scoped auth tokens are rejected; the Host header is never trusted for auth validation (no `https://`) |
-| `database.path`              | `data/sqlite.db` | Local SQLite database path                                                                                             |
-| `database.url`               | —                | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                       |
-| `storage.backend`            | `local`          | Storage backend: `local`, `s3`, or `r2`                                                                                |
-| `storage.local.dir`          | `./data/blobs`   | Directory for blob files (local backend)                                                                               |
-| `storage.removeWhenNoOwners` | `false`          | Delete blobs with no owners on each prune cycle, regardless of expiry rules                                            |
-| `upload.enabled`             | `true`           | Enable `PUT /upload`                                                                                                   |
-| `upload.requireAuth`         | `true`           | Require Nostr auth for uploads                                                                                         |
-| `upload.maxSize`             | `2147483648`     | Maximum upload size in bytes (2 GB)                                                                                    |
-| `upload.workers`             | `0`              | Upload worker threads (0 = one per CPU core)                                                                           |
-| `upload.requirePubkeyInRule` | `false`          | Reject uploads unless the uploader's pubkey appears in a storage rule                                                  |
-| `mirror.enabled`             | `true`           | Enable `PUT /mirror` (BUD-04)                                                                                          |
-| `mirror.connectTimeout`      | `30000`          | Timeout (ms) to connect to the origin; 0 = no limit                                                                    |
-| `mirror.bodyTimeout`         | `0`              | Timeout (ms) for full body transfer from origin; 0 = no limit                                                          |
-| `delete.requireAuth`         | `true`           | Require Nostr auth for deletes                                                                                         |
-| `list.enabled`               | `false`          | Enable `GET /list/:pubkey` (BUD-02); disabled by default                                                               |
-| `list.requireAuth`           | `false`          | Require Nostr auth for list requests                                                                                   |
-| `list.allowListOthers`       | `true`           | Allow listing blobs belonging to a different pubkey                                                                    |
-| `media.enabled`              | `false`          | Enable `PUT /media` (BUD-05); requires ffmpeg for video                                                                |
-| `report.enabled`             | `true`           | Enable `PUT /report` (BUD-09)                                                                                          |
-| `landing.enabled`            | `true`           | Enable the landing page at `/`                                                                                         |
-| `landing.title`              | `Blossom Server` | Page title shown in `<title>` and `<h1>`                                                                               |
-| `dashboard.enabled`          | `false`          | Enable the admin dashboard at `/admin`                                                                                 |
+| `database.path`              | `data/sqlite.db` | Local SQLite database path                                                                                                                                                                                                                   |
+| `database.url`               | —                | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                                                                                                                                             |
+| `storage.backend`            | `local`          | Storage backend: `local`, `s3`, or `r2`                                                                                                                                                                                                      |
+| `storage.local.dir`          | `./data/blobs`   | Directory for blob files (local backend)                                                                                                                                                                                                     |
+| `storage.removeWhenNoOwners` | `false`          | Delete blobs with no owners on each prune cycle, regardless of expiry rules                                                                                                                                                                  |
+| `upload.enabled`             | `true`           | Enable `PUT /upload`                                                                                                                                                                                                                         |
+| `upload.requireAuth`         | `true`           | Require Nostr auth for uploads                                                                                                                                                                                                               |
+| `upload.maxSize`             | `2147483648`     | Maximum upload size in bytes (2 GB)                                                                                                                                                                                                          |
+| `upload.workers`             | `0`              | Upload worker threads (0 = one per CPU core)                                                                                                                                                                                                 |
+| `upload.requirePubkeyInRule` | `false`          | Reject uploads unless the uploader's pubkey appears in a storage rule                                                                                                                                                                        |
+| `mirror.enabled`             | `true`           | Enable `PUT /mirror` (BUD-04)                                                                                                                                                                                                                |
+| `mirror.connectTimeout`      | `30000`          | Timeout (ms) to connect to the origin; 0 = no limit                                                                                                                                                                                          |
+| `mirror.bodyTimeout`         | `0`              | Timeout (ms) for full body transfer from origin; 0 = no limit                                                                                                                                                                                |
+| `delete.requireAuth`         | `true`           | Require Nostr auth for deletes                                                                                                                                                                                                               |
+| `list.enabled`               | `false`          | Enable `GET /list/:pubkey` (BUD-02); disabled by default                                                                                                                                                                                     |
+| `list.requireAuth`           | `false`          | Require Nostr auth for list requests                                                                                                                                                                                                         |
+| `list.allowListOthers`       | `true`           | Allow listing blobs belonging to a different pubkey                                                                                                                                                                                          |
+| `paidStorage.enabled`        | `false`          | Require active paid quota for `PUT`/`HEAD /upload`                                                                                                                                                                                           |
+| `paidStorage.priceSats`      | `20`             | Temporary Lightning launch price per 1 GiB/year unit                                                                                                                                                                                         |
+| `paidStorage.cashu.mintUrl`  | Minibits         | Cashu mint used as the Lightning invoice and settlement-status intermediary                                                                                                                                                                  |
+| `media.enabled`              | `false`          | Enable `PUT /media` (BUD-05); requires ffmpeg for video                                                                                                                                                                                      |
+| `report.enabled`             | `true`           | Enable `PUT /report` (BUD-09)                                                                                                                                                                                                                |
+| `landing.enabled`            | `true`           | Enable the landing page at `/`                                                                                                                                                                                                               |
+| `landing.title`              | `Blossom Server` | Page title shown in `<title>` and `<h1>`                                                                                                                                                                                                     |
+| `dashboard.enabled`          | `false`          | Enable the admin dashboard at `/admin`                                                                                                                                                                                                       |
 
 For all options with inline documentation, see
 [`config.example.yml`](config.example.yml).
@@ -336,12 +341,12 @@ Authorization: Nostr <base64-encoded-JSON-event>
 
 The event must be **kind 24242** and include:
 
-| Tag          | Required | Description                                                    |
-| ------------ | -------- | -------------------------------------------------------------- |
-| `t`          | Yes      | Verb for this token: `upload`, `delete`, `get`, or `list`      |
-| `expiration` | Yes      | Unix timestamp after which the token is invalid                |
-| `x`          | No       | One or more SHA-256 hashes scoping the token to specific blobs |
-| `server`     | No       | Hostname(s) this token is valid for                            |
+| Tag          | Required | Description                                                                                 |
+| ------------ | -------- | ------------------------------------------------------------------------------------------- |
+| `t`          | Yes      | Verb for this token: `upload`, `delete`, `get`, `list`, or the Fanfares `storage` extension |
+| `expiration` | Yes      | Unix timestamp after which the token is invalid                                             |
+| `x`          | No       | One or more SHA-256 hashes scoping the token to specific blobs                              |
+| `server`     | No       | Hostname(s) this token is valid for                                                         |
 
 Example event (before signing):
 
@@ -389,6 +394,30 @@ Example event (before signing):
 | Method | Path      | Auth | Description                                                               |
 | ------ | --------- | ---- | ------------------------------------------------------------------------- |
 | `PUT`  | `/report` | None | Submit a NIP-56 kind:1984 Nostr event to flag a blob for operator review. |
+
+### Paid Storage Account Extension
+
+These endpoints use BUD-11 kind `24242` authorization with `t=storage`. They add
+annual account quotas on top of standard Blossom upload and list behavior:
+
+| Method | Path                     | Description                                                     |
+| ------ | ------------------------ | --------------------------------------------------------------- |
+| `GET`  | `/storage/plan`          | Public configured price, quota, and duration                    |
+| `GET`  | `/storage/account`       | Signed account quota, usage, expiry, and uploaded file list     |
+| `POST` | `/storage/purchases`     | Create or reuse a Lightning invoice; JSON body `{ "units": 1 }` |
+| `GET`  | `/storage/purchases/:id` | Verify settlement and idempotently credit the annual grant      |
+
+When quota is insufficient, `HEAD /upload` and `PUT /upload` return `402` with
+the BUD-07 `X-Lightning` invoice plus `X-Storage-Payment-Id` and
+`X-Storage-Purchase-Url`. Upload reservations expire automatically and prevent
+parallel uploads from overspending one account. Blob usage is the sum of blobs
+owned by the authenticated pubkey; deleting ownership returns that capacity.
+
+The configured Cashu mint holds paid mint quotes and reports their settlement.
+Before production launch, configure the operator's Cashu/Lightning treasury
+process for claiming or forwarding those paid quotes. The customer-facing quota
+grant and its payment record live in libSQL, so Cloudflare Container deployments
+must use persistent Turso rather than container-local SQLite.
 
 _\* Auth requirement is configurable per-endpoint via `requireAuth` in the
 config._

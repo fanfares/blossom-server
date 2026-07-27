@@ -17,11 +17,13 @@ import { requestLogger } from "./middleware/logger.ts";
 
 import { buildBlossomRouter } from "./routes/blossom-router.ts";
 import { buildLandingRouter } from "./routes/landing.tsx";
+import type { LightningQuoteProvider } from "./payments/cashu.ts";
 
 export async function buildApp(
   db: Client,
   storage: IBlobStorage,
   config: Config,
+  services: { paymentProvider?: LightningQuoteProvider } = {},
 ): Promise<Hono<{ Variables: BlossomVariables }>> {
   const app = new Hono<{ Variables: BlossomVariables }>();
 
@@ -60,7 +62,10 @@ export async function buildApp(
 
   // Blossom protocol routes (BUDs 01/02/04/05/06/09) — collected in a single
   // sub-app with its own BUD-01-compliant onError (text/plain + X-Reason).
-  app.route("/", buildBlossomRouter(db, storage, config));
+  app.route(
+    "/",
+    buildBlossomRouter(db, storage, config, services.paymentProvider),
+  );
 
   return app;
 }

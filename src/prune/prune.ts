@@ -25,6 +25,7 @@ import {
 } from "../db/blobs.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import { mimeToSqlLike, parseDuration } from "./rules.ts";
+import { hasActivePaidOwner } from "../db/paid-storage.ts";
 
 export interface PruneResult {
   /** Total blobs removed (DB row + physical file) this run. */
@@ -93,6 +94,9 @@ export async function pruneStorage(
 
       if (lastSeen < cutoffSeconds) {
         try {
+          // A paid grant promises retention through its own expiry even when a
+          // generic MIME/access rule would otherwise prune the blob sooner.
+          if (await hasActivePaidOwner(db, row.sha256, now)) continue;
           const ext = mimeToExt(row.type);
           await deleteBlob(db, row.sha256); // FK cascade removes owners + accessed rows
           await storage.remove(row.sha256, ext);

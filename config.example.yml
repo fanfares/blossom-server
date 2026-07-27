@@ -216,6 +216,30 @@ list:
   allowListOthers: true
 
 # ---------------------------------------------------------------------------
+# Paid storage  (Fanfares account extension + BUD-07 upload challenges)
+# ---------------------------------------------------------------------------
+
+paidStorage:
+  # When enabled, authenticated uploaders need active storage grants and every
+  # accepted upload is checked against their remaining quota.
+  enabled: false
+
+  # $1 display price for 1 GiB lasting 365 days. The temporary Lightning launch
+  # price is 20 sats per unit and can be changed independently later.
+  quotaBytesPerUnit: 1073741824
+  durationDays: 365
+  priceUsdCents: 100
+  priceSats: 20
+  maxUnitsPerPurchase: 100
+  reservationTtlSeconds: 900
+
+  # Cashu acts as the Lightning invoice intermediary. Paid mint quotes are
+  # recorded durably in the configured libSQL/Turso database. Configure a
+  # persistent remote database for Cloudflare Containers.
+  cashu:
+    mintUrl: https://mint.minibits.cash/Bitcoin
+
+# ---------------------------------------------------------------------------
 # Media optimisation  (BUD-05)
 # ---------------------------------------------------------------------------
 

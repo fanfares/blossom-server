@@ -184,11 +184,11 @@ export function authMiddleware(
  * Throws 401 if no valid auth is present, or 403 if the t tag doesn't match.
  *
  * @param ctx   Hono context
- * @param verb  Required BUD-11 verb: "get" | "upload" | "list" | "delete" | "media"
+ * @param verb  Required BUD-11 verb, including the Fanfares "storage" account extension.
  */
 export function requireAuth(
   ctx: Context<{ Variables: BlossomVariables }>,
-  verb: "get" | "upload" | "list" | "delete" | "media",
+  verb: "get" | "upload" | "list" | "delete" | "media" | "storage",
 ): NostrEvent {
   const auth = ctx.get("auth");
   if (!auth) {
