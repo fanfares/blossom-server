@@ -14,6 +14,14 @@ export interface StoragePurchaseRecord {
   createdAt: number;
   paidAt: number | null;
   creditedAt: number | null;
+  purchaseType: "new" | "extension";
+}
+
+export interface StorageGrantRecord {
+  purchaseId: string;
+  quotaBytes: number;
+  startsAt: number;
+  expiresAt: number;
 }
 
 export interface StorageQuotaSummary {
@@ -41,6 +49,7 @@ function rowToPurchase(
     createdAt: row[10] as number,
     paidAt: row[11] as number | null,
     creditedAt: row[12] as number | null,
+    purchaseType: (row[13] as StoragePurchaseRecord["purchaseType"]) ?? "new",
   };
 }
 
@@ -49,11 +58,15 @@ const PURCHASE_COLUMNS = `
   provider_quote_id, state, invoice_expires, created_at, paid_at, credited_at
 `;
 
-export async function insertStoragePurchase(
-  db: Client,
-  purchase: StoragePurchaseRecord,
-): Promise<void> {
-  await db.execute({
+const PURCHASE_SELECT_COLUMNS = `${PURCHASE_COLUMNS},
+  CASE WHEN EXISTS (
+    SELECT 1 FROM storage_purchase_extensions e
+    WHERE e.purchase_id = storage_purchases.id
+  ) THEN 'extension' ELSE 'new' END
+`;
+
+function storagePurchaseInsert(purchase: StoragePurchaseRecord) {
+  return {
     sql: `INSERT INTO storage_purchases (
       ${PURCHASE_COLUMNS}
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -72,7 +85,36 @@ export async function insertStoragePurchase(
       purchase.paidAt,
       purchase.creditedAt,
     ],
-  });
+  };
+}
+
+export async function insertStoragePurchase(
+  db: Client,
+  purchase: StoragePurchaseRecord,
+): Promise<void> {
+  await db.execute(storagePurchaseInsert(purchase));
+}
+
+export async function insertStorageExtensionPurchase(
+  db: Client,
+  purchase: StoragePurchaseRecord,
+  targets: StorageGrantRecord[],
+): Promise<void> {
+  await db.batch(
+    [
+      storagePurchaseInsert(purchase),
+      {
+        sql: "INSERT INTO storage_purchase_extensions (purchase_id) VALUES (?)",
+        args: [purchase.id],
+      },
+      ...targets.map((target) => ({
+        sql: `INSERT INTO storage_extension_targets
+              (purchase_id, grant_purchase_id) VALUES (?, ?)`,
+        args: [purchase.id, target.purchaseId],
+      })),
+    ],
+    "write",
+  );
 }
 
 export async function getStoragePurchase(
@@ -81,8 +123,9 @@ export async function getStoragePurchase(
   pubkey: string,
 ): Promise<StoragePurchaseRecord | null> {
   const rs = await db.execute({
-    sql: `SELECT ${PURCHASE_COLUMNS}
-          FROM storage_purchases WHERE id = ? AND pubkey = ? LIMIT 1`,
+    sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
+          FROM storage_purchases
+          WHERE id = ? AND pubkey = ? LIMIT 1`,
     args: [id, pubkey],
   });
   return rs.rows[0] ? rowToPurchase(rs.rows[0]) : null;
@@ -98,10 +141,14 @@ export async function findPendingStoragePurchase(
   now: number,
 ): Promise<StoragePurchaseRecord | null> {
   const rs = await db.execute({
-    sql: `SELECT ${PURCHASE_COLUMNS}
+    sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
           FROM storage_purchases
           WHERE pubkey = ? AND units = ? AND amount_sats = ?
             AND quota_bytes = ? AND duration_seconds = ? AND state = 'pending'
+            AND NOT EXISTS (
+              SELECT 1 FROM storage_purchase_extensions e
+              WHERE e.purchase_id = storage_purchases.id
+            )
             AND (invoice_expires IS NULL OR invoice_expires > ?)
           ORDER BY created_at DESC LIMIT 1`,
     args: [pubkey, units, amountSats, quotaBytes, durationSeconds, now],
@@ -128,6 +175,43 @@ export async function creditStoragePurchase(
           now + purchase.durationSeconds,
         ],
       },
+      {
+        sql: `UPDATE storage_purchases
+              SET state = 'paid', paid_at = COALESCE(paid_at, ?), credited_at = COALESCE(credited_at, ?)
+              WHERE id = ?`,
+        args: [now, now, purchase.id],
+      },
+    ],
+    "write",
+  );
+}
+
+export async function creditStorageExtensionPurchase(
+  db: Client,
+  purchase: StoragePurchaseRecord,
+  now: number,
+): Promise<void> {
+  const targets = await db.execute({
+    sql: `SELECT grant_purchase_id FROM storage_extension_targets
+          WHERE purchase_id = ?`,
+    args: [purchase.id],
+  });
+  await db.batch(
+    [
+      ...targets.rows.map((row) => ({
+        sql: `UPDATE storage_grants
+              SET expires_at = expires_at + ?
+              WHERE purchase_id = ?
+                AND EXISTS (
+                  SELECT 1 FROM storage_purchases p
+                  WHERE p.id = ? AND p.credited_at IS NULL
+                )`,
+        args: [
+          purchase.durationSeconds,
+          row[0] as string,
+          purchase.id,
+        ],
+      })),
       {
         sql: `UPDATE storage_purchases
               SET state = 'paid', paid_at = COALESCE(paid_at, ?), credited_at = COALESCE(credited_at, ?)
@@ -176,6 +260,26 @@ export async function getStorageQuotaSummary(
       ? null
       : Number(row[3]),
   };
+}
+
+export async function listActiveStorageGrants(
+  db: Client,
+  pubkey: string,
+  now: number,
+): Promise<StorageGrantRecord[]> {
+  const rs = await db.execute({
+    sql: `SELECT purchase_id, quota_bytes, starts_at, expires_at
+          FROM storage_grants
+          WHERE pubkey = ? AND expires_at > ?
+          ORDER BY expires_at ASC, purchase_id ASC`,
+    args: [pubkey, now],
+  });
+  return rs.rows.map((row) => ({
+    purchaseId: row[0] as string,
+    quotaBytes: Number(row[1]),
+    startsAt: Number(row[2]),
+    expiresAt: Number(row[3]),
+  }));
 }
 
 export async function reserveStorageQuota(
