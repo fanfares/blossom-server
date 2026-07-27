@@ -211,7 +211,7 @@ const UploadSchema = z.object({
     .number()
     .int()
     .min(100)
-    .default(1_000)
+    .default(20)
     .describe(
       "How often (ms) each worker reports its throughput to the pool. The pool uses this to route new uploads to the least-loaded worker. Lower = more responsive; higher = less overhead.",
     ),
@@ -472,6 +472,75 @@ const ListSchema = z.object({
     ),
 });
 
+const PaidStorageSchema = z.object({
+  enabled: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Require authenticated uploaders to have an active paid storage grant.",
+    ),
+  quotaBytesPerUnit: z
+    .number()
+    .int()
+    .positive()
+    .default(1024 * 1024 * 1024)
+    .describe("Storage bytes granted by one purchased unit. Default: 1 GiB."),
+  durationDays: z
+    .number()
+    .int()
+    .positive()
+    .default(365)
+    .describe("Lifetime of each purchased storage grant in days."),
+  priceUsdCents: z
+    .number()
+    .int()
+    .positive()
+    .default(100)
+    .describe("Display price of one unit in US cents. Default: $1.00."),
+  priceSats: z
+    .number()
+    .int()
+    .positive()
+    .default(1_000)
+    .describe(
+      "Lightning invoice amount for one unit. The temporary launch price is 20 sats per GiB/year.",
+    ),
+  maxUnitsPerPurchase: z
+    .number()
+    .int()
+    .min(1)
+    .max(1000)
+    .default(100)
+    .describe("Maximum storage units accepted in one checkout."),
+  reservationTtlSeconds: z
+    .number()
+    .int()
+    .min(60)
+    .default(15 * 60)
+    .describe(
+      "How long an in-progress upload reserves quota before stale reservations expire.",
+    ),
+  cashu: z
+    .object({
+      mintUrl: z
+        .string()
+        .url()
+        .default("https://mint.minibits.cash/Bitcoin")
+        .describe(
+          "Cashu mint used to create and verify Lightning mint quotes for storage purchases.",
+        ),
+    })
+    .optional()
+    .transform((v) =>
+      v ??
+        z.object({
+          mintUrl: z.string().url().default(
+            "https://mint.minibits.cash/Bitcoin",
+          ),
+        }).parse({})
+    ),
+});
+
 const LandingSchema = z.object({
   enabled: z
     .boolean()
@@ -611,6 +680,11 @@ export const ConfigSchema = z
     list: ListSchema.optional()
       .transform((v) => v ?? ListSchema.parse({}))
       .describe("List endpoint settings (BUD-02). Disabled by default."),
+    paidStorage: PaidStorageSchema.optional()
+      .transform((v) => v ?? PaidStorageSchema.parse({}))
+      .describe(
+        "Annual paid-storage quota and Cashu Lightning checkout settings.",
+      ),
     landing: LandingSchema.optional()
       .transform((v) => v ?? LandingSchema.parse({}))
       .describe("Landing page settings."),
@@ -649,3 +723,4 @@ export type ImageOptimizeConfig = z.infer<typeof ImageOptimizeSchema>;
 export type VideoOptimizeConfig = z.infer<typeof VideoOptimizeSchema>;
 export type MediaConfig = z.infer<typeof MediaSchema>;
 export type UploadAllowlistConfig = z.infer<typeof UploadAllowlistSchema>;
+export type PaidStorageConfig = z.infer<typeof PaidStorageSchema>;
