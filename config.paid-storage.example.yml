@@ -31,7 +31,7 @@ paidStorage:
   durationDays: 365
   priceUsdCents: 100
   priceSats: 20
-  maxDurationYears: 10
+  maxDurationYears: 5
   cashu:
     mintUrl: https://mint.minibits.cash/Bitcoin
 
