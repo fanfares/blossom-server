@@ -26,8 +26,9 @@ export function buildPaidStorageRouter(
     const auth = getStorageAuth(ctx);
     if (auth instanceof Response) return auth;
 
-    const [quota, blobs] = await Promise.all([
+    const [quota, grants, blobs] = await Promise.all([
       service.getQuota(auth.pubkey),
+      service.getActiveGrants(auth.pubkey),
       listBlobsByPubkey(db, auth.pubkey, { limit: 1000 }),
     ]);
     const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
@@ -36,6 +37,7 @@ export function buildPaidStorageRouter(
       pubkey: auth.pubkey,
       plan: service.plan,
       quota,
+      grants,
       files: blobs.map((blob) => ({
         url: getBlobUrl(blob.sha256, blob.type, baseUrl),
         sha256: blob.sha256,
@@ -50,17 +52,38 @@ export function buildPaidStorageRouter(
     const auth = getStorageAuth(ctx);
     if (auth instanceof Response) return auth;
 
-    let units = 1;
+    let purchaseType: "new" | "extension" = "new";
+    let storageUnits = 1;
+    let durationYears = 1;
     try {
-      const body = await ctx.req.json<{ units?: number }>();
-      units = body.units ?? 1;
+      const body = await ctx.req.json<{
+        purchaseType?: "new" | "extension";
+        storageUnits?: number;
+        durationYears?: number;
+        units?: number;
+      }>();
+      purchaseType = body.purchaseType ?? "new";
+      storageUnits = body.storageUnits ?? body.units ?? 1;
+      durationYears = body.durationYears ?? 1;
     } catch {
       return errorResponse(ctx, 400, "Request body must be valid JSON");
     }
 
     try {
-      const purchase = await service.getOrCreatePurchase(auth.pubkey, units);
-      return ctx.json(toPublicPurchase(purchase), 201);
+      if (purchaseType !== "new" && purchaseType !== "extension") {
+        return errorResponse(ctx, 400, "Invalid storage purchase type");
+      }
+      const purchase = purchaseType === "extension"
+        ? await service.createExtensionPurchase(auth.pubkey, durationYears)
+        : await service.getOrCreatePurchase(
+          auth.pubkey,
+          storageUnits,
+          durationYears,
+        );
+      return ctx.json(
+        toPublicPurchase(purchase, service.plan.durationDays),
+        201,
+      );
     } catch (err) {
       if (err instanceof RangeError) {
         return errorResponse(ctx, 400, err.message);
@@ -85,7 +108,7 @@ export function buildPaidStorageRouter(
       if (!purchase) {
         return errorResponse(ctx, 404, "Storage purchase not found");
       }
-      return ctx.json(toPublicPurchase(purchase));
+      return ctx.json(toPublicPurchase(purchase, service.plan.durationDays));
     } catch (err) {
       console.error("Failed to verify paid-storage invoice:", err);
       return errorResponse(
@@ -114,10 +137,16 @@ function getStorageAuth(
 
 function toPublicPurchase(
   purchase: Awaited<ReturnType<PaidStorageService["getOrCreatePurchase"]>>,
+  durationDays: number,
 ) {
   return {
     id: purchase.id,
+    purchaseType: purchase.purchaseType,
     units: purchase.units,
+    storageUnits: purchase.units,
+    durationYears: Math.round(
+      purchase.durationSeconds / (durationDays * 24 * 60 * 60),
+    ),
     quotaBytes: purchase.quotaBytes,
     amountSats: purchase.amountSats,
     invoice: purchase.invoice,

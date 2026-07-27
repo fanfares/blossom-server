@@ -501,7 +501,7 @@ const PaidStorageSchema = z.object({
     .number()
     .int()
     .positive()
-    .default(1_000)
+    .default(20)
     .describe(
       "Lightning invoice amount for one unit. The temporary launch price is 20 sats per GiB/year.",
     ),
@@ -511,7 +511,14 @@ const PaidStorageSchema = z.object({
     .min(1)
     .max(1000)
     .default(100)
-    .describe("Maximum storage units accepted in one checkout."),
+    .describe("Maximum billable GiB-years accepted in one checkout."),
+  maxDurationYears: z
+    .number()
+    .int()
+    .min(1)
+    .max(25)
+    .default(10)
+    .describe("Maximum duration selectable for a purchase or extension."),
   reservationTtlSeconds: z
     .number()
     .int()

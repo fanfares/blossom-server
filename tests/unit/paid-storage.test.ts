@@ -82,6 +82,12 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
     const settled = await service.refreshPurchase(first.id, pubkey);
     assertEquals(settled?.state, "paid");
 
+    const multiYear = await service.getOrCreatePurchase("c".repeat(64), 2, 3);
+    assertEquals(multiYear.units, 2);
+    assertEquals(multiYear.quotaBytes, 2000);
+    assertEquals(multiYear.amountSats, 150);
+    assertEquals(multiYear.durationSeconds, 3 * 365 * 24 * 60 * 60);
+
     await insertBlob(
       db,
       { sha256: "b".repeat(64), size: 400, type: "audio/mpeg", uploaded: 1 },
@@ -117,6 +123,25 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
     quota = await getStorageQuotaSummary(db, pubkey, now);
     assertEquals(quota.reservedBytes, 500);
     assertEquals(quota.availableBytes, 100);
+
+    const grantsBeforeExtension = await service.getActiveGrants(pubkey);
+    const extension = await service.createExtensionPurchase(pubkey, 2);
+    assertEquals(extension.purchaseType, "extension");
+    assertEquals(extension.units, 1);
+    assertEquals(extension.amountSats, 50);
+    await service.refreshPurchase(extension.id, pubkey);
+    const grantsAfterExtension = await service.getActiveGrants(pubkey);
+    assertEquals(
+      grantsAfterExtension[0].expiresAt,
+      grantsBeforeExtension[0].expiresAt + 2 * 365 * 24 * 60 * 60,
+    );
+
+    await service.refreshPurchase(extension.id, pubkey);
+    const grantsAfterSecondRefresh = await service.getActiveGrants(pubkey);
+    assertEquals(
+      grantsAfterSecondRefresh[0].expiresAt,
+      grantsAfterExtension[0].expiresAt,
+    );
   } finally {
     db.close();
     await Deno.remove(tmpDir, { recursive: true });

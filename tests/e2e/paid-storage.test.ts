@@ -25,10 +25,12 @@ const secretKey = generateSecretKey();
 
 class FakePayments implements LightningQuoteProvider {
   state: LightningQuoteState = "pending";
+  createCalls = 0;
 
   createQuote(amountSats: number) {
+    this.createCalls++;
     return Promise.resolve({
-      providerQuoteId: "paid-storage-e2e-quote",
+      providerQuoteId: `paid-storage-e2e-quote-${this.createCalls}`,
       invoice: `lnbc-${amountSats}`,
       expiresAt: Math.floor(Date.now() / 1000) + 600,
     });
@@ -130,6 +132,46 @@ Deno.test({
       assertEquals(accountBody.quota.usedBytes, 5);
       assertEquals(accountBody.quota.availableBytes, 995);
       assertEquals(accountBody.files.length, 1);
+      assertEquals(accountBody.grants.length, 1);
+
+      const originalExpiry = accountBody.grants[0].expiresAt;
+      const extension = await app.fetch(
+        new Request("http://localhost/storage/purchases", {
+          method: "POST",
+          headers: {
+            Authorization: authorization("storage"),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            purchaseType: "extension",
+            durationYears: 2,
+          }),
+        }),
+      );
+      assertEquals(extension.status, 201);
+      const extensionBody = await extension.json();
+      assertEquals(extensionBody.purchaseType, "extension");
+      assertEquals(extensionBody.durationYears, 2);
+      assertEquals(extensionBody.amountSats, 50);
+
+      const extensionSettled = await app.fetch(
+        new Request(
+          `http://localhost/storage/purchases/${extensionBody.id}`,
+          { headers: { Authorization: authorization("storage") } },
+        ),
+      );
+      assertEquals(extensionSettled.status, 200);
+
+      const extendedAccount = await app.fetch(
+        new Request("http://localhost/storage/account", {
+          headers: { Authorization: authorization("storage") },
+        }),
+      );
+      const extendedAccountBody = await extendedAccount.json();
+      assertEquals(
+        extendedAccountBody.grants[0].expiresAt,
+        originalExpiry + 2 * 365 * 24 * 60 * 60,
+      );
     } finally {
       pool.shutdown();
       db.close();
