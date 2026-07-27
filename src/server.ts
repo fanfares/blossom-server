@@ -18,12 +18,18 @@ import { requestLogger } from "./middleware/logger.ts";
 import { buildBlossomRouter } from "./routes/blossom-router.ts";
 import { buildLandingRouter } from "./routes/landing.tsx";
 import type { LightningQuoteProvider } from "./payments/cashu.ts";
+import type { TreasuryForwarder } from "./payments/treasury.ts";
+import type { PaidStorageService } from "./paid-storage/service.ts";
 
 export async function buildApp(
   db: Client,
   storage: IBlobStorage,
   config: Config,
-  services: { paymentProvider?: LightningQuoteProvider } = {},
+  services: {
+    paymentProvider?: LightningQuoteProvider;
+    treasuryForwarder?: TreasuryForwarder;
+    paidStorageService?: PaidStorageService;
+  } = {},
 ): Promise<Hono<{ Variables: BlossomVariables }>> {
   const app = new Hono<{ Variables: BlossomVariables }>();
 
@@ -64,7 +70,7 @@ export async function buildApp(
   // sub-app with its own BUD-01-compliant onError (text/plain + X-Reason).
   app.route(
     "/",
-    buildBlossomRouter(db, storage, config, services.paymentProvider),
+    buildBlossomRouter(db, storage, config, services),
   );
 
   return app;

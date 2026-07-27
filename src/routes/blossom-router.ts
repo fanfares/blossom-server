@@ -28,18 +28,24 @@ import { buildReportRouter } from "./report.ts";
 import { buildPaidStorageRouter } from "./paid-storage.ts";
 import { PaidStorageService } from "../paid-storage/service.ts";
 import type { LightningQuoteProvider } from "../payments/cashu.ts";
+import type { TreasuryForwarder } from "../payments/treasury.ts";
 
 export function buildBlossomRouter(
   db: Client,
   storage: IBlobStorage,
   config: Config,
-  paymentProvider?: LightningQuoteProvider,
+  services: {
+    paymentProvider?: LightningQuoteProvider;
+    treasuryForwarder?: TreasuryForwarder;
+    paidStorageService?: PaidStorageService;
+  } = {},
 ): Hono<{ Variables: BlossomVariables }> {
   const app = new Hono<{ Variables: BlossomVariables }>();
-  const paidStorage = new PaidStorageService(
+  const paidStorage = services.paidStorageService ?? new PaidStorageService(
     db,
     config.paidStorage,
-    paymentProvider,
+    services.paymentProvider,
+    services.treasuryForwarder,
   );
 
   // BUD-01-compliant error handler: all errors from Blossom route handlers are

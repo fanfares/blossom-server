@@ -160,6 +160,7 @@ export async function creditStoragePurchase(
   db: Client,
   purchase: StoragePurchaseRecord,
   now: number,
+  treasuryDestination?: string,
 ): Promise<void> {
   await db.batch(
     [
@@ -181,6 +182,7 @@ export async function creditStoragePurchase(
               WHERE id = ?`,
         args: [now, now, purchase.id],
       },
+      ...treasuryOutboxStatements(purchase, treasuryDestination, now),
     ],
     "write",
   );
@@ -190,6 +192,7 @@ export async function creditStorageExtensionPurchase(
   db: Client,
   purchase: StoragePurchaseRecord,
   now: number,
+  treasuryDestination?: string,
 ): Promise<void> {
   const targets = await db.execute({
     sql: `SELECT grant_purchase_id FROM storage_extension_targets
@@ -218,9 +221,26 @@ export async function creditStorageExtensionPurchase(
               WHERE id = ?`,
         args: [now, now, purchase.id],
       },
+      ...treasuryOutboxStatements(purchase, treasuryDestination, now),
     ],
     "write",
   );
+}
+
+/** Builds the outbox insert included in the same transaction that activates customer storage. */
+function treasuryOutboxStatements(
+  purchase: StoragePurchaseRecord,
+  destination: string | undefined,
+  now: number,
+) {
+  if (!destination) return [];
+  return [{
+    sql: `INSERT OR IGNORE INTO storage_treasury_transfers
+          (purchase_id, destination, gross_amount_sats, state, next_attempt_at,
+           lease_until, created_at, updated_at)
+          VALUES (?, ?, ?, 'pending', ?, 0, ?, ?)`,
+    args: [purchase.id, destination, purchase.amountSats, now, now, now],
+  }];
 }
 
 export async function expireStoragePurchase(

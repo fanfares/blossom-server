@@ -20,6 +20,7 @@ import { LocalStorage } from "./src/storage/local.ts";
 import { S3Storage } from "./src/storage/s3.ts";
 import { initPool } from "./src/workers/pool.ts";
 import { buildApp } from "./src/server.ts";
+import { PaidStorageService } from "./src/paid-storage/service.ts";
 import { pruneStorage } from "./src/prune/prune.ts";
 
 const configPath = Deno.args[0] ?? "config.yml";
@@ -137,7 +138,25 @@ if (config.dashboard.enabled) {
 }
 
 // Build Hono app (async — landing router loads the prebuilt client JS at startup).
-const app = await buildApp(db, storage, config);
+const paidStorageService = new PaidStorageService(db, config.paidStorage);
+const app = await buildApp(db, storage, config, { paidStorageService });
+
+// Retry the durable treasury outbox independently from customer requests.
+let treasuryTimeout: ReturnType<typeof setTimeout> | undefined;
+if (config.paidStorage.enabled && config.paidStorage.treasury.enabled) {
+  const runTreasurySweep = async () => {
+    try {
+      await paidStorageService.processDueTreasuryTransfers();
+    } catch (error) {
+      console.error("[treasury] Unexpected error in forwarding loop:", error);
+    }
+    treasuryTimeout = setTimeout(
+      runTreasurySweep,
+      config.paidStorage.treasury.retryIntervalSeconds * 1000,
+    );
+  };
+  treasuryTimeout = setTimeout(runTreasurySweep, 5_000);
+}
 
 // Start prune loop — runs if any storage rules are configured or removeWhenNoOwners is set.
 // Uses recursive setTimeout (not setInterval) so the next run starts only after the
@@ -223,6 +242,7 @@ const server = Deno.serve(
 const shutdown = () => {
   console.log("\nShutting down...");
   if (pruneTimeout !== undefined) clearTimeout(pruneTimeout);
+  if (treasuryTimeout !== undefined) clearTimeout(treasuryTimeout);
   pool.shutdown();
   server.shutdown();
   db.close();

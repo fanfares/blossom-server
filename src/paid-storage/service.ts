@@ -19,6 +19,18 @@ import {
   CashuPaymentProvider,
   type LightningQuoteProvider,
 } from "../payments/cashu.ts";
+import {
+  claimTreasuryTransfer,
+  completeTreasuryTransfer,
+  listDueTreasuryTransferIds,
+  retryTreasuryTransfer,
+  saveTreasuryClaim,
+  saveTreasuryMelt,
+} from "../db/treasury.ts";
+import {
+  CashuTreasuryForwarder,
+  type TreasuryForwarder,
+} from "../payments/treasury.ts";
 
 export interface PaidStoragePlan {
   quotaBytesPerUnit: number;
@@ -32,13 +44,17 @@ export interface PaidStoragePlan {
 /** Coordinates Cashu Lightning quotes with durable annual quota grants. */
 export class PaidStorageService {
   private readonly payments: LightningQuoteProvider;
+  private readonly treasury: TreasuryForwarder;
 
   constructor(
     private readonly db: Client,
     private readonly config: PaidStorageConfig,
     payments?: LightningQuoteProvider,
+    treasury?: TreasuryForwarder,
   ) {
     this.payments = payments ?? new CashuPaymentProvider(config.cashu.mintUrl);
+    this.treasury = treasury ??
+      new CashuTreasuryForwarder(config.cashu.mintUrl);
   }
 
   get enabled(): boolean {
@@ -208,10 +224,26 @@ export class PaidStorageService {
     if (providerState === "paid") {
       const now = this.now();
       if (purchase.purchaseType === "extension") {
-        await creditStorageExtensionPurchase(this.db, purchase, now);
+        await creditStorageExtensionPurchase(
+          this.db,
+          purchase,
+          now,
+          this.treasuryDestination,
+        );
       } else {
-        await creditStoragePurchase(this.db, purchase, now);
+        await creditStoragePurchase(
+          this.db,
+          purchase,
+          now,
+          this.treasuryDestination,
+        );
       }
+      this.forwardTreasuryPurchase(purchase.id).catch((error) => {
+        console.error(
+          `[treasury] Immediate forwarding failed for ${purchase.id}:`,
+          error,
+        );
+      });
       return await getStoragePurchase(this.db, id, pubkey);
     }
     if (providerState === "expired") {
@@ -219,6 +251,116 @@ export class PaidStorageService {
       return await getStoragePurchase(this.db, id, pubkey);
     }
     return purchase;
+  }
+
+  /** Processes due durable payouts from the server retry loop after paid storage has been activated. */
+  async processDueTreasuryTransfers(limit = 10): Promise<void> {
+    if (!this.treasuryDestination) return;
+    const now = this.now();
+    const ids = await listDueTreasuryTransferIds(this.db, now, limit);
+    for (const id of ids) {
+      try {
+        await this.forwardTreasuryPurchase(id);
+      } catch (error) {
+        console.error(`[treasury] Retry failed for ${id}:`, error);
+      }
+    }
+  }
+
+  /** Advances one leased Cashu claim and Lightning payout without allowing concurrent duplicate melts. */
+  private async forwardTreasuryPurchase(purchaseId: string): Promise<void> {
+    if (!this.treasuryDestination) return;
+    const claimed = await claimTreasuryTransfer(
+      this.db,
+      purchaseId,
+      this.now(),
+      600,
+    );
+    if (!claimed) return;
+    try {
+      let mintPreviewJson = claimed.mintPreviewJson;
+      if (!mintPreviewJson) {
+        mintPreviewJson = await this.treasury.prepareClaim(
+          claimed.grossAmountSats,
+          await this.providerQuoteIdForPurchase(purchaseId),
+        );
+        await saveTreasuryClaim(this.db, purchaseId, this.now(), {
+          mintPreviewJson,
+        });
+      }
+
+      let proofsJson = claimed.proofsJson;
+      if (!proofsJson) {
+        proofsJson = await this.treasury.completeClaim(mintPreviewJson);
+        await saveTreasuryClaim(this.db, purchaseId, this.now(), {
+          proofsJson,
+        });
+      }
+
+      let meltPreviewJson = claimed.meltPreviewJson;
+      if (!meltPreviewJson) {
+        const prepared = await this.treasury.preparePayout(
+          proofsJson,
+          claimed.destination,
+          claimed.grossAmountSats,
+        );
+        meltPreviewJson = prepared.meltPreviewJson;
+        await saveTreasuryMelt(
+          this.db,
+          purchaseId,
+          this.now(),
+          meltPreviewJson,
+          prepared.forwardedAmountSats,
+          prepared.feeReserveSats,
+        );
+      }
+
+      const completed = await this.treasury.completePayout(meltPreviewJson);
+      if (!completed.paid) {
+        throw new Error(
+          "Cashu mint reports the treasury payment is still pending",
+        );
+      }
+      await completeTreasuryTransfer(
+        this.db,
+        purchaseId,
+        this.now(),
+        completed.changeProofsJson,
+        completed.paymentPreimage,
+      );
+      console.log(
+        `[treasury] Forwarded storage purchase ${purchaseId} to ${claimed.destination}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await retryTreasuryTransfer(
+        this.db,
+        purchaseId,
+        claimed.attemptCount,
+        this.now(),
+        message,
+      );
+      throw error;
+    }
+  }
+
+  /** Reads the original Cashu mint quote ID needed to claim a settled purchase into proofs. */
+  private async providerQuoteIdForPurchase(
+    purchaseId: string,
+  ): Promise<string> {
+    const result = await this.db.execute({
+      sql:
+        "SELECT provider_quote_id FROM storage_purchases WHERE id = ? LIMIT 1",
+      args: [purchaseId],
+    });
+    if (!result.rows[0]) throw new Error("Treasury purchase no longer exists");
+    return String(result.rows[0][0]);
+  }
+
+  private get treasuryDestination(): string | undefined {
+    return this.config.treasury.enabled
+      ? this.config.treasury.lightningAddress
+      : undefined;
   }
 
   private now(): number {

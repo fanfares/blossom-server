@@ -54,6 +54,17 @@ list:
   enabled: true
   requireAuth: false
 
+paidStorage:
+  enabled: true
+  priceSats: 20
+  maxDurationYears: 5
+  cashu:
+    mintUrl: https://mint.minibits.cash/Bitcoin
+  treasury:
+    enabled: true
+    lightningAddress: iefan@walletofsatoshi.com
+    retryIntervalSeconds: 60
+
 media:
   enabled: false
 

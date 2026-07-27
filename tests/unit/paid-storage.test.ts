@@ -19,6 +19,11 @@ import type {
   LightningQuoteProvider,
   LightningQuoteState,
 } from "../../src/payments/cashu.ts";
+import type {
+  CompletedTreasuryPayout,
+  PreparedTreasuryPayout,
+  TreasuryForwarder,
+} from "../../src/payments/treasury.ts";
 
 class FakePayments implements LightningQuoteProvider {
   state: LightningQuoteState = "pending";
@@ -35,6 +40,35 @@ class FakePayments implements LightningQuoteProvider {
 
   checkQuote(): Promise<LightningQuoteState> {
     return Promise.resolve(this.state);
+  }
+}
+
+class FakeTreasury implements TreasuryForwarder {
+  completed = 0;
+
+  prepareClaim(): Promise<string> {
+    return Promise.resolve('{"claim":true}');
+  }
+
+  completeClaim(): Promise<string> {
+    return Promise.resolve('[{"amount":20}]');
+  }
+
+  preparePayout(): Promise<PreparedTreasuryPayout> {
+    return Promise.resolve({
+      meltPreviewJson: '{"melt":true}',
+      forwardedAmountSats: 19,
+      feeReserveSats: 1,
+    });
+  }
+
+  completePayout(): Promise<CompletedTreasuryPayout> {
+    this.completed++;
+    return Promise.resolve({
+      paid: true,
+      changeProofsJson: "[]",
+      paymentPreimage: "preimage",
+    });
   }
 }
 
@@ -142,6 +176,59 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
       grantsAfterSecondRefresh[0].expiresAt,
       grantsAfterExtension[0].expiresAt,
     );
+  } finally {
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("paid storage durably forwards settled revenue to the configured wallet once", async () => {
+  const tmpDir = await Deno.makeTempDir({ prefix: "blossom_treasury_" });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  try {
+    const config = ConfigSchema.parse({
+      paidStorage: {
+        enabled: true,
+        quotaBytesPerUnit: 1000,
+        priceSats: 20,
+        treasury: {
+          enabled: true,
+          lightningAddress: "iefan@walletofsatoshi.com",
+        },
+      },
+    });
+    const payments = new FakePayments();
+    const treasury = new FakeTreasury();
+    const service = new PaidStorageService(
+      db,
+      config.paidStorage,
+      payments,
+      treasury,
+    );
+    const pubkey = "d".repeat(64);
+    const purchase = await service.getOrCreatePurchase(pubkey, 1);
+    payments.state = "paid";
+    await service.refreshPurchase(purchase.id, pubkey);
+
+    let state = "";
+    for (let attempt = 0; attempt < 20 && state !== "paid"; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const result = await db.execute({
+        sql:
+          "SELECT state, destination, forwarded_amount_sats FROM storage_treasury_transfers WHERE purchase_id = ?",
+        args: [purchase.id],
+      });
+      state = String(result.rows[0]?.[0] ?? "");
+      if (state === "paid") {
+        assertEquals(result.rows[0]?.[1], "iefan@walletofsatoshi.com");
+        assertEquals(result.rows[0]?.[2], 19);
+      }
+    }
+    assertEquals(state, "paid");
+
+    await service.refreshPurchase(purchase.id, pubkey);
+    await service.processDueTreasuryTransfers();
+    assertEquals(treasury.completed, 1);
   } finally {
     db.close();
     await Deno.remove(tmpDir, { recursive: true });

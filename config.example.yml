@@ -240,6 +240,13 @@ paidStorage:
   cashu:
     mintUrl: https://mint.minibits.cash/Bitcoin
 
+  # Once Cashu verifies the customer's invoice, mint the settled value and
+  # forward it (less Lightning routing fees) to the operator wallet.
+  treasury:
+    enabled: true
+    lightningAddress: iefan@walletofsatoshi.com
+    retryIntervalSeconds: 60
+
 # ---------------------------------------------------------------------------
 # Media optimisation  (BUD-05)
 # ---------------------------------------------------------------------------

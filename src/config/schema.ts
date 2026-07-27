@@ -546,6 +546,27 @@ const PaidStorageSchema = z.object({
           ),
         }).parse({})
     ),
+  treasury: z
+    .object({
+      enabled: z.boolean().default(false).describe(
+        "Forward settled storage revenue through the Cashu mint to the configured Lightning Address.",
+      ),
+      lightningAddress: z.string().regex(/^[^@\s]+@[^@\s]+$/).default(
+        "iefan@walletofsatoshi.com",
+      ).describe("Lightning Address that receives paid-storage revenue."),
+      retryIntervalSeconds: z.number().int().min(10).default(60).describe(
+        "Interval between durable treasury outbox retry sweeps.",
+      ),
+    })
+    .optional()
+    .transform((v) =>
+      v ??
+        z.object({
+          enabled: z.boolean().default(false),
+          lightningAddress: z.string().default("iefan@walletofsatoshi.com"),
+          retryIntervalSeconds: z.number().int().default(60),
+        }).parse({})
+    ),
 });
 
 const LandingSchema = z.object({
