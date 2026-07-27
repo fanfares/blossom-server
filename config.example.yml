@@ -231,7 +231,7 @@ paidStorage:
   priceUsdCents: 100
   priceSats: 20
   maxUnitsPerPurchase: 100
-  maxDurationYears: 10
+  maxDurationYears: 5
   reservationTtlSeconds: 900
 
   # Cashu acts as the Lightning invoice intermediary. Paid mint quotes are

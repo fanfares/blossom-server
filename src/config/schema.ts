@@ -516,8 +516,8 @@ const PaidStorageSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(25)
-    .default(10)
+    .max(5)
+    .default(5)
     .describe("Maximum duration selectable for a purchase or extension."),
   reservationTtlSeconds: z
     .number()
