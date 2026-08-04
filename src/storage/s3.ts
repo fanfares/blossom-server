@@ -266,20 +266,11 @@ export class S3Storage implements IBlobStorage {
 
     const key = this.objectKey(hash, ext);
 
-    // Check for existing object — dedup, avoid redundant PUT
-    const t1 = Date.now();
-    debug(`[s3:commit] checking dedup via has() hash=${hash}`);
-    const alreadyExists = await this.has(hash, ext);
-    const t2 = Date.now();
-    if (alreadyExists) {
-      debug(
-        `[s3:commit] dedup hit — skipping putObject hash=${hash} elapsed=${
-          t2 - t1
-        }ms`,
-      );
-      await Deno.remove(srcPath).catch(() => {});
-      return;
-    }
+    // No has()-based dedup skip here: keys are content-addressed, so an
+    // unconditional PUT of identical bytes is idempotent and always safe,
+    // while trusting a pre-check means a wrong statObject answer silently
+    // discards the upload (the route-level DB dedup already short-circuits
+    // true duplicates before commit ever runs).
 
     const stat = await Deno.stat(srcPath);
     debug(`[s3:commit] opening local file size=${stat.size} bytes`);

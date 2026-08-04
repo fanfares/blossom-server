@@ -152,6 +152,28 @@ Deno.test({
 });
 
 // ---------------------------------------------------------------------------
+// Octet-stream storage key regression (the R2 blob-loss bug)
+// ---------------------------------------------------------------------------
+
+Deno.test({
+  name:
+    "octet-stream blob gets a .bin descriptor URL and is retrievable via bare hash, .bin, and wrong-ext URLs",
+  async fn() {
+    // The descriptor must carry an extension: extensionless storage keys were
+    // unretrievable on the R2 deployment (201 upload, 404 on every GET).
+    assertEquals(blobUrl, `/${blobHash}.bin`);
+
+    for (const path of [`/${blobHash}`, `/${blobHash}.bin`, `/${blobHash}.jpg`]) {
+      const res = await app.fetch(new Request(`http://localhost${path}`));
+      assertEquals(res.status, 200, `GET ${path} should succeed`);
+      const body = new Uint8Array(await res.arrayBuffer());
+      assertEquals(body, BLOB_DATA, `GET ${path} should return the blob bytes`);
+    }
+  },
+  ...testOpts,
+});
+
+// ---------------------------------------------------------------------------
 // GET — full download (no Range header)
 // ---------------------------------------------------------------------------
 

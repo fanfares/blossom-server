@@ -38,7 +38,6 @@ import type { Client } from "@libsql/client";
 import { crypto as stdCrypto } from "@std/crypto";
 import { encodeHex } from "@std/encoding/hex";
 import { typeByExtension } from "@std/media-types";
-import { extension as extFromMime } from "@std/media-types";
 import { ulid } from "@std/ulid";
 import {
   getBlob,
@@ -52,6 +51,7 @@ import { requireAuth } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { debug } from "../middleware/debug.ts";
 import { errorResponse } from "../middleware/errors.ts";
+import { mimeToExt } from "../utils/mime.ts";
 import { optimizeMedia } from "../optimize/index.ts";
 import { getFileRule } from "../prune/rules.ts";
 import type { IBlobStorage } from "../storage/interface.ts";
@@ -75,11 +75,6 @@ interface BlobDescriptor {
 // ---------------------------------------------------------------------------
 // Helpers (mirrors upload.ts — kept local for route self-containment)
 // ---------------------------------------------------------------------------
-
-function mimeToExt(mime: string | null): string {
-  if (!mime || mime === "application/octet-stream") return "";
-  return extFromMime(mime) ?? "";
-}
 
 /**
  * Compute SHA-256 and total byte size of a file by streaming it in chunks.
