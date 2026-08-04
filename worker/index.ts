@@ -168,6 +168,54 @@ async function removeOwnerOrBlob(
   }
 }
 
+/**
+ * Compares two secrets without leaking their contents or length through timing.
+ * Both sides are hashed first so the comparison runs over fixed-length digests.
+ */
+async function constantTimeEqual(a: string, b: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [da, db] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(a)),
+    crypto.subtle.digest("SHA-256", encoder.encode(b)),
+  ]);
+  const x = new Uint8Array(da);
+  const y = new Uint8Array(db);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+/**
+ * Gates a `/__meta` admin operation on the configured bearer secret.
+ *
+ * Fails closed when BLOSSOM_ADMIN_PASSWORD is missing or empty. The previous
+ * `if (adminPassword.length > 0)` form skipped the check entirely when the
+ * secret was unset, and wrangler.jsonc shipped it as an empty `vars` entry, so
+ * the gate was open in the deployed configuration and any redeploy would
+ * overwrite a correctly set secret back to "".
+ *
+ * @returns A Response to return immediately, or null when the caller is authorized.
+ */
+async function requireMetaAdmin(
+  request: Request,
+  env: Env,
+): Promise<Response | null> {
+  const adminPassword = env.BLOSSOM_ADMIN_PASSWORD;
+  if (typeof adminPassword !== "string" || adminPassword.length === 0) {
+    console.error(
+      "Refusing /__meta admin request: BLOSSOM_ADMIN_PASSWORD is not configured",
+    );
+    return json({ error: "server configuration error" }, 500);
+  }
+
+  const auth = request.headers.get("authorization") ?? "";
+  if (!(await constantTimeEqual(auth, `Bearer ${adminPassword}`))) {
+    return json({ error: "unauthorized" }, 401);
+  }
+
+  return null;
+}
+
 async function handleMetadataApi(
   request: Request,
   env: Env,
@@ -377,13 +425,8 @@ async function handleMetadataApi(
   }
 
   if (pathname === "/__meta/reindex" && request.method === "POST") {
-    const adminPassword = env.BLOSSOM_ADMIN_PASSWORD ?? "";
-    if (adminPassword.length > 0) {
-      const auth = request.headers.get("authorization") ?? "";
-      if (auth !== `Bearer ${adminPassword}`) {
-        return json({ error: "unauthorized" }, 401);
-      }
-    }
+    const unauthorized = await requireMetaAdmin(request, env);
+    if (unauthorized) return unauthorized;
 
     const owner = url.searchParams.get("owner")?.trim() || "recovered-r2";
     const max = parseIntParam(url.searchParams.get("max"), 1000, 1, 1000);
