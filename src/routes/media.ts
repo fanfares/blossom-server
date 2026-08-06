@@ -47,6 +47,7 @@ import {
   insertMediaDerivative,
   isOwner,
 } from "../db/blobs.ts";
+import { assertUploadAllowed } from "../auth/upload-allowlist.ts";
 import { requireAuth } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { debug } from "../middleware/debug.ts";
@@ -134,7 +135,7 @@ export function buildMediaRouter(
 
   // Hono does not support HEAD-only routes directly; register as GET and
   // the framework strips the body automatically for HEAD requests.
-  app.get("/media", (ctx) => {
+  app.get("/media", async (ctx) => {
     // --- 1. Feature flag ---
     if (!config.media.enabled) {
       return errorResponse(
@@ -147,10 +148,11 @@ export function buildMediaRouter(
     // --- 2. Auth ---
     if (config.media.requireAuth) {
       try {
-        requireAuth(ctx, "media");
+        const auth = requireAuth(ctx, "media");
+        await assertUploadAllowed(config, auth.pubkey);
       } catch (err) {
         if (err instanceof HTTPException) {
-          return errorResponse(ctx, err.status as 401 | 403, err.message);
+          return errorResponse(ctx, err.status as 401 | 403 | 503, err.message);
         }
         throw err;
       }
@@ -236,11 +238,16 @@ export function buildMediaRouter(
       if (config.media.requireAuth) {
         try {
           auth = requireAuth(ctx, "media");
+          await assertUploadAllowed(config, auth.pubkey);
         } catch (err) {
           const msg = err instanceof HTTPException ? err.message : String(err);
           debug(debugPrefix, `rejected: auth failed — ${msg}`);
           if (err instanceof HTTPException) {
-            return errorResponse(ctx, err.status as 401 | 403, err.message);
+            return errorResponse(
+              ctx,
+              err.status as 401 | 403 | 503,
+              err.message,
+            );
           }
           throw err;
         }

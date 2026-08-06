@@ -122,6 +122,54 @@ const StorageSchema = z.object({
     ),
 });
 
+const UploadAllowlistSchema = z.object({
+  enabled: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Restrict write operations (upload, media, mirror) to pubkeys followed by listPubkey's kind:3 contact list. " +
+        "BUD-11 auth only proves that some key signed the request; this proves the signer is one of ours. " +
+        "Reads are never restricted. Disabled by default.",
+    ),
+  listPubkey: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe(
+      "Hex pubkey whose kind:3 contact list defines the allowed uploaders.",
+    ),
+  relays: z
+    .array(z.string())
+    .default([])
+    .describe("Relays queried for the contact list."),
+  extraPubkeys: z
+    .array(z.string())
+    .default([])
+    .describe(
+      "Always-allowed hex pubkeys, independent of the contact list. Keep at least one operator key here so a relay or list problem cannot lock everyone out.",
+    ),
+  refreshSeconds: z
+    .number()
+    .int()
+    .positive()
+    .default(300)
+    .describe("How long a fetched list is reused before refreshing."),
+  staleSeconds: z
+    .number()
+    .int()
+    .positive()
+    .default(86_400)
+    .describe(
+      "How long a cached list may still be used after a failed refresh, before writes fail closed.",
+    ),
+  timeoutMs: z
+    .number()
+    .int()
+    .positive()
+    .default(5_000)
+    .describe("Relay request timeout when fetching the contact list."),
+});
+
 const UploadSchema = z.object({
   enabled: z
     .boolean()
@@ -549,6 +597,11 @@ export const ConfigSchema = z
     upload: UploadSchema.optional()
       .transform((v) => v ?? UploadSchema.parse({}))
       .describe("Upload endpoint settings (BUD-02 / BUD-06)."),
+    uploadAllowlist: UploadAllowlistSchema.optional()
+      .transform((v) => v ?? UploadAllowlistSchema.parse({}))
+      .describe(
+        "Pubkey allowlist applied to all write endpoints (upload, media, mirror).",
+      ),
     mirror: MirrorSchema.optional()
       .transform((v) => v ?? MirrorSchema.parse({}))
       .describe("Mirror endpoint settings (BUD-04)."),
@@ -595,3 +648,4 @@ export type ReportConfig = z.infer<typeof ReportSchema>;
 export type ImageOptimizeConfig = z.infer<typeof ImageOptimizeSchema>;
 export type VideoOptimizeConfig = z.infer<typeof VideoOptimizeSchema>;
 export type MediaConfig = z.infer<typeof MediaSchema>;
+export type UploadAllowlistConfig = z.infer<typeof UploadAllowlistSchema>;

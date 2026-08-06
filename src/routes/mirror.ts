@@ -36,6 +36,7 @@ import { HTTPException } from "@hono/hono/http-exception";
 import type { Client } from "@libsql/client";
 import { ulid } from "@std/ulid";
 import { getBlob, hasBlob, insertBlob, isOwner } from "../db/blobs.ts";
+import { assertUploadAllowed } from "../auth/upload-allowlist.ts";
 import { requireAuth } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { debug } from "../middleware/debug.ts";
@@ -91,11 +92,12 @@ export function buildMirrorRouter(
     if (config.mirror.requireAuth) {
       try {
         auth = requireAuth(ctx, "upload");
+        await assertUploadAllowed(config, auth.pubkey);
       } catch (err) {
         const msg = err instanceof HTTPException ? err.message : String(err);
         debug(debugPrefix, `rejected: auth failed — ${msg}`);
         if (err instanceof HTTPException) {
-          return errorResponse(ctx, err.status as 401 | 403, err.message);
+          return errorResponse(ctx, err.status as 401 | 403 | 503, err.message);
         }
         throw err;
       }
