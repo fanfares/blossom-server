@@ -29,8 +29,10 @@
   "vars": {
     "CF_ACCOUNT_ID": "4e84c1691dd1a8230152bfc2551cec85",
     "R2_BUCKET": "ff-blossom-test",
-    "BLOSSOM_PUBLIC_DOMAIN": "",
-    "BLOSSOM_ADMIN_PASSWORD": ""
+    "BLOSSOM_PUBLIC_DOMAIN": ""
+    // BLOSSOM_ADMIN_PASSWORD is deliberately NOT declared here. Vars and
+    // secrets share one namespace, so an empty var overwrites the secret on
+    // every deploy. Set it with: wrangler secret put BLOSSOM_ADMIN_PASSWORD
   },
   "observability": {
     "enabled": true
