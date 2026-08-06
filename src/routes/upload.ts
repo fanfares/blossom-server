@@ -28,6 +28,7 @@ import { Hono } from "@hono/hono";
 import { HTTPException } from "@hono/hono/http-exception";
 import type { Client } from "@libsql/client";
 import { ulid } from "@std/ulid";
+import { assertUploadAllowed } from "../auth/upload-allowlist.ts";
 import { getBlob, hasBlob, insertBlob, isOwner } from "../db/blobs.ts";
 import { requireAuth, requireXTag } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
@@ -70,10 +71,13 @@ export function buildUploadRouter(
 
     if (config.upload.requireAuth) {
       try {
-        requireAuth(ctx, "upload");
+        const auth = requireAuth(ctx, "upload");
+        // Reject unauthorized pubkeys during the BUD-06 preflight too, so the
+        // client learns before streaming any bytes.
+        await assertUploadAllowed(config, auth.pubkey);
       } catch (err) {
         if (err instanceof HTTPException) {
-          return errorResponse(ctx, err.status as 401 | 403, err.message);
+          return errorResponse(ctx, err.status as 401 | 403 | 503, err.message);
         }
         throw err;
       }
@@ -156,11 +160,12 @@ export function buildUploadRouter(
     if (config.upload.requireAuth) {
       try {
         auth = requireAuth(ctx, "upload");
+        await assertUploadAllowed(config, auth.pubkey);
       } catch (err) {
         const msg = err instanceof HTTPException ? err.message : String(err);
         debug(debugPrefix, `rejected: auth failed — ${msg}`);
         if (err instanceof HTTPException) {
-          return errorResponse(ctx, err.status as 401 | 403, err.message);
+          return errorResponse(ctx, err.status as 401 | 403 | 503, err.message);
         }
         throw err;
       }

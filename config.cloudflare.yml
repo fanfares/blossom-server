@@ -23,6 +23,26 @@ upload:
   enabled: true
   requireAuth: true
 
+# Only Fanfares users may write. BUD-11 auth alone proves nothing about who is
+# uploading (any generated key satisfies it), so writes are additionally
+# restricted to the pubkeys followed by the early-access curator's kind:3 list —
+# the same list the Fanfares API gates early access on, and the same list the
+# compose UI already checks client-side. Reads stay open for buyers.
+uploadAllowlist:
+  enabled: true
+  listPubkey: d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  relays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io
+  # Break-glass: the curator key itself always retains write access, so a bad
+  # list or relay outage can never lock the operator out.
+  extraPubkeys:
+    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  refreshSeconds: 300
+  staleSeconds: 86400
+  timeoutMs: 5000
+
 mirror:
   enabled: false
   requireAuth: true
