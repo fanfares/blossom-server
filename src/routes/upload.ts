@@ -396,6 +396,23 @@ export function buildUploadRouter(
       throw err;
     }
 
+    // --- 10b. Verify the committed blob is actually retrievable ---
+    // A successful upload response is a promise that the blob can be fetched.
+    // If storage cannot see the object we just committed, fail the upload
+    // loudly instead of returning a descriptor URL that will 404 (the failure
+    // mode that silently discarded application/octet-stream uploads on R2).
+    if (!(await storage.has(hash, ext))) {
+      debug(
+        debugPrefix,
+        `post-commit verification FAILED — blob not visible in storage hash=${hash} ext=${ext}`,
+      );
+      return errorResponse(
+        ctx,
+        500,
+        "Upload failed: blob did not persist to storage",
+      );
+    }
+
     // --- 11. Insert metadata ---
     const now = Math.floor(Date.now() / 1000);
     const blobRecord = {

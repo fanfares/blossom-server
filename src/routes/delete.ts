@@ -13,7 +13,6 @@
 
 import { Hono } from "@hono/hono";
 import type { Client } from "@libsql/client";
-import { extension as extFromMime } from "@std/media-types";
 import type { IBlobStorage } from "../storage/interface.ts";
 import {
   countOwners,
@@ -25,15 +24,10 @@ import {
 import { requireAuth, requireXTag } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
+import { mimeToExt } from "../utils/mime.ts";
 import type { Config } from "../config/schema.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
-
-/** Derive the stored file extension from a MIME type. Empty string if none. */
-function mimeToExt(mime: string | null): string {
-  if (!mime || mime === "application/octet-stream") return "";
-  return extFromMime(mime) ?? "";
-}
 
 export function buildDeleteRouter(
   db: Client,
