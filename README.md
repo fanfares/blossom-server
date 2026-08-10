@@ -278,8 +278,8 @@ Optional query parameters:
 - `limit` max objects per run (default `100000`, page size is internal)
 - `dryRun=true` to scan without writing
 
-`BLOSSOM_ADMIN_PASSWORD` is **required**. The endpoint fails closed with 500 when
-it is unset, so set it as a secret (never as a `vars` entry, which would be
+`BLOSSOM_ADMIN_PASSWORD` is **required**. The endpoint fails closed with 500
+when it is unset, so set it as a secret (never as a `vars` entry, which would be
 overwritten on every deploy):
 
 ```sh
