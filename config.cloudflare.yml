@@ -4,11 +4,11 @@ port: 3000
 # Canonical deployment hostname used for blob URLs and BUD-11 server-tag validation.
 publicDomain: "blossom.fanfares.live"
 
-# Temporary metadata backend for container runtime.
-# D1 is provisioned in wrangler.jsonc, but this Deno process cannot use Worker
-# bindings directly until a runtime integration refactor is completed.
+# Paid grants, reservations, ownership, and treasury state must survive
+# Cloudflare Container replacement. Local SQLite is ephemeral in this runtime.
 database:
-  path: ./data/sqlite.db
+  url: "${TURSO_DATABASE_URL}"
+  authToken: "${TURSO_AUTH_TOKEN}"
 
 storage:
   backend: r2

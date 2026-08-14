@@ -4,13 +4,21 @@ export interface LightningQuote {
   providerQuoteId: string;
   invoice: string;
   expiresAt: number | null;
+  amountSats: number;
+  unit: string;
 }
 
-export type LightningQuoteState = "pending" | "paid" | "expired";
+export type LightningQuoteState = "pending" | "paid" | "expired" | "issued";
+
+export interface LightningQuoteStatus {
+  state: LightningQuoteState;
+  amountSats: number;
+  unit: string;
+}
 
 export interface LightningQuoteProvider {
   createQuote(amountSats: number, memo: string): Promise<LightningQuote>;
-  checkQuote(providerQuoteId: string): Promise<LightningQuoteState>;
+  checkQuote(providerQuoteId: string): Promise<LightningQuoteStatus>;
 }
 
 /** Creates and checks Lightning mint quotes used as the Cashu payment intermediary. */
@@ -26,16 +34,26 @@ export class CashuPaymentProvider implements LightningQuoteProvider {
       providerQuoteId: String(quote.quote),
       invoice: String(quote.request),
       expiresAt: this.toOptionalInt(quote.expiry),
+      amountSats: this.toRequiredInt(quote.amount, "mint quote amount"),
+      unit: String(quote.unit),
     };
   }
 
-  async checkQuote(providerQuoteId: string): Promise<LightningQuoteState> {
+  async checkQuote(providerQuoteId: string): Promise<LightningQuoteStatus> {
     const wallet = await this.getWallet();
     const quote = await wallet.checkMintQuoteBolt11(providerQuoteId);
     const state = String(quote.state ?? "").toUpperCase();
-    if (state === "PAID" || state === "ISSUED") return "paid";
-    if (state === "EXPIRED") return "expired";
-    return "pending";
+    return {
+      state: state === "PAID"
+        ? "paid"
+        : state === "ISSUED"
+        ? "issued"
+        : state === "EXPIRED"
+        ? "expired"
+        : "pending",
+      amountSats: this.toRequiredInt(quote.amount, "mint quote amount"),
+      unit: String(quote.unit),
+    };
   }
 
   private async getWallet(): Promise<Wallet> {
@@ -52,5 +70,20 @@ export class CashuPaymentProvider implements LightningQuoteProvider {
     }
     if (typeof value === "bigint") return Number(value);
     return null;
+  }
+
+  /** Converts Cashu's number/bigint/Amount representations without truncation. */
+  private toRequiredInt(value: unknown, label: string): number {
+    if (
+      typeof value === "object" && value !== null &&
+      "toNumber" in value && typeof value.toNumber === "function"
+    ) {
+      value = value.toNumber();
+    }
+    const parsed = typeof value === "bigint" ? Number(value) : Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error(`Invalid ${label}`);
+    }
+    return parsed;
   }
 }

@@ -45,6 +45,10 @@ import {
   reserveStorageQuota,
 } from "../db/paid-storage.ts";
 import type { PaidStorageService } from "../paid-storage/service.ts";
+import {
+  startStorageReservationLease,
+  type StorageReservationLease,
+} from "../paid-storage/reservation.ts";
 
 /** BUD-02 Blob Descriptor */
 interface BlobDescriptor {
@@ -293,6 +297,15 @@ export function buildUploadRouter(
     const ext = mimeToExt(mimeType);
 
     let reservationId: string | null = null;
+    let reservationLease: StorageReservationLease | null = null;
+    const releaseReservation = async () => {
+      reservationLease?.stop();
+      reservationLease = null;
+      if (reservationId) {
+        await releaseStorageReservation(db, reservationId);
+        reservationId = null;
+      }
+    };
     if (paidStorage.enabled && auth) {
       let requiredBytes = contentLength;
       if (xSha256 && (await hasBlob(db, xSha256))) {
@@ -328,6 +341,12 @@ export function buildUploadRouter(
           );
         }
         reservationId = reqId;
+        reservationLease = startStorageReservationLease(db, {
+          id: reqId,
+          pubkey: auth.pubkey,
+          sizeBytes: requiredBytes,
+          ttlSeconds: config.paidStorage.reservationTtlSeconds,
+        });
       }
     }
 
@@ -346,7 +365,7 @@ export function buildUploadRouter(
             await insertBlob(db, existing, auth.pubkey);
           }
         } finally {
-          if (reservationId) await releaseStorageReservation(db, reservationId);
+          await releaseReservation();
         }
         const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
         return ctx.json(
@@ -364,7 +383,7 @@ export function buildUploadRouter(
     // --- 7. Acquire worker (503 if pool full — no queue) ---
     const body = ctx.req.raw.body;
     if (!body) {
-      if (reservationId) await releaseStorageReservation(db, reservationId);
+      await releaseReservation();
       debug(debugPrefix, "rejected: empty request body");
       return errorResponse(ctx, 400, "Request body is empty");
     }
@@ -372,7 +391,7 @@ export function buildUploadRouter(
     const pool = getPool();
     if (pool.available === 0) {
       await body.cancel();
-      if (reservationId) await releaseStorageReservation(db, reservationId);
+      await releaseReservation();
       debug(debugPrefix, "rejected: all upload workers busy");
       return errorResponse(
         ctx,
@@ -390,7 +409,7 @@ export function buildUploadRouter(
     try {
       session = await storage.beginWrite(contentLength);
     } catch (err) {
-      if (reservationId) await releaseStorageReservation(db, reservationId);
+      await releaseReservation();
       throw err;
     }
 
@@ -412,7 +431,7 @@ export function buildUploadRouter(
       // pool.available check and dispatch(). Rare but safe to handle.
       await body.cancel().catch(() => {});
       await storage.abortWrite(session).catch(() => {});
-      if (reservationId) await releaseStorageReservation(db, reservationId);
+      await releaseReservation();
       debug(
         debugPrefix,
         "rejected: worker race — all workers claimed before dispatch",
@@ -440,7 +459,7 @@ export function buildUploadRouter(
     } catch (err) {
       // Worker already deleted session.tmpPath on failure — abortWrite is a no-op.
       await storage.abortWrite(session).catch(() => {});
-      if (reservationId) await releaseStorageReservation(db, reservationId);
+      await releaseReservation();
       const msg = err instanceof Error ? err.message : "Upload failed";
       debug(debugPrefix, `worker error — ${msg}`);
       if (err instanceof WorkerJobError && err.errorType === "HASH_MISMATCH") {
@@ -456,7 +475,7 @@ export function buildUploadRouter(
         requireXTag(auth, hash);
       } catch (err) {
         await storage.abortWrite(session).catch(() => {});
-        if (reservationId) await releaseStorageReservation(db, reservationId);
+        await releaseReservation();
         const msg = err instanceof HTTPException ? err.message : String(err);
         debug(debugPrefix, `rejected: deferred x-tag check failed — ${msg}`);
         if (err instanceof HTTPException) {
@@ -464,6 +483,19 @@ export function buildUploadRouter(
         }
         throw err;
       }
+    }
+
+    // Re-check the authoritative quota with the worker's exact byte count.
+    // A reservation that expired or lost capacity while the body streamed must
+    // never be converted into ownership after another upload reused its bytes.
+    if (reservationLease && !(await reservationLease.verify(size))) {
+      await storage.abortWrite(session).catch(() => {});
+      await releaseReservation();
+      return errorResponse(
+        ctx,
+        409,
+        "Storage reservation expired or quota changed; retry the upload",
+      );
     }
 
     // --- 10. Commit: move verified tmp file to final storage location ---
@@ -478,7 +510,7 @@ export function buildUploadRouter(
       debug(debugPrefix, `commitWrite complete elapsed=${t1 - t0}ms`);
     } catch (err) {
       await storage.abortWrite(session).catch(() => {});
-      if (reservationId) await releaseStorageReservation(db, reservationId);
+      await releaseReservation();
       throw err;
     }
 
@@ -488,6 +520,7 @@ export function buildUploadRouter(
     // loudly instead of returning a descriptor URL that will 404 (the failure
     // mode that silently discarded application/octet-stream uploads on R2).
     if (!(await storage.has(hash, ext))) {
+      await releaseReservation();
       debug(
         debugPrefix,
         `post-commit verification FAILED — blob not visible in storage hash=${hash} ext=${ext}`,
@@ -516,7 +549,7 @@ export function buildUploadRouter(
         auth?.pubkey ?? "anonymous",
       );
     } finally {
-      if (reservationId) await releaseStorageReservation(db, reservationId);
+      await releaseReservation();
     }
     const t3 = Date.now();
     debug(debugPrefix, `insertBlob complete elapsed=${t3 - t2}ms`);

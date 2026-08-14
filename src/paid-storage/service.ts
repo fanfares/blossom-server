@@ -110,6 +110,7 @@ export class PaidStorageService {
         (storageUnits === 1 ? "" : "s") + " for " + durationYears +
         " year" + (durationYears === 1 ? "" : "s"),
     );
+    this.assertQuoteTerms(quote, amountSats);
     const purchase: StoragePurchaseRecord = {
       id: ulid(),
       pubkey,
@@ -173,6 +174,7 @@ export class PaidStorageService {
         (storageUnits === 1 ? "" : "s") + " by " + durationYears +
         " year" + (durationYears === 1 ? "" : "s"),
     );
+    this.assertQuoteTerms(quote, amountSats);
     const purchase: StoragePurchaseRecord = {
       id: ulid(),
       pubkey,
@@ -218,10 +220,16 @@ export class PaidStorageService {
     const purchase = await getStoragePurchase(this.db, id, pubkey);
     if (!purchase || purchase.state !== "pending") return purchase;
 
-    const providerState = await this.payments.checkQuote(
+    const providerStatus = await this.payments.checkQuote(
       purchase.providerQuoteId,
     );
-    if (providerState === "paid") {
+    this.assertQuoteTerms(providerStatus, purchase.amountSats);
+    if (providerStatus.state === "issued") {
+      throw new Error(
+        "Cashu storage quote was issued before the server credited the purchase",
+      );
+    }
+    if (providerStatus.state === "paid") {
       const now = this.now();
       if (purchase.purchaseType === "extension") {
         await creditStorageExtensionPurchase(
@@ -246,11 +254,24 @@ export class PaidStorageService {
       });
       return await getStoragePurchase(this.db, id, pubkey);
     }
-    if (providerState === "expired") {
+    if (providerStatus.state === "expired") {
       await expireStoragePurchase(this.db, purchase.id);
       return await getStoragePurchase(this.db, id, pubkey);
     }
     return purchase;
+  }
+
+  /** Fails closed when the mint returns terms that differ from the purchase. */
+  private assertQuoteTerms(
+    quote: { amountSats: number; unit: string },
+    expectedAmountSats: number,
+  ): void {
+    if (
+      quote.unit !== "sat" || quote.amountSats !== expectedAmountSats ||
+      !Number.isSafeInteger(quote.amountSats)
+    ) {
+      throw new Error("Cashu mint quote does not match the storage purchase");
+    }
   }
 
   /** Processes due durable payouts from the server retry loop after paid storage has been activated. */

@@ -5,13 +5,14 @@
  * and atomic upload reservations that prevent concurrent quota oversubscription.
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import { ConfigSchema } from "../../src/config/schema.ts";
 import { initDb } from "../../src/db/client.ts";
 import { insertBlob } from "../../src/db/blobs.ts";
 import {
   getStorageQuotaSummary,
+  renewStorageReservation,
   reserveStorageQuota,
 } from "../../src/db/paid-storage.ts";
 import { PaidStorageService } from "../../src/paid-storage/service.ts";
@@ -28,18 +29,27 @@ import type {
 class FakePayments implements LightningQuoteProvider {
   state: LightningQuoteState = "pending";
   createCalls = 0;
+  amounts = new Map<string, number>();
 
   createQuote(amountSats: number) {
     this.createCalls++;
+    const providerQuoteId = `quote-${this.createCalls}`;
+    this.amounts.set(providerQuoteId, amountSats);
     return Promise.resolve({
-      providerQuoteId: `quote-${this.createCalls}`,
+      providerQuoteId,
       invoice: `lnbc-${amountSats}`,
       expiresAt: Math.floor(Date.now() / 1000) + 600,
+      amountSats,
+      unit: "sat",
     });
   }
 
-  checkQuote(): Promise<LightningQuoteState> {
-    return Promise.resolve(this.state);
+  checkQuote(providerQuoteId: string) {
+    return Promise.resolve({
+      state: this.state,
+      amountSats: this.amounts.get(providerQuoteId) ?? 0,
+      unit: "sat",
+    });
   }
 }
 
@@ -77,6 +87,7 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
   const db = await initDb({ path: join(tmpDir, "test.db") });
   try {
     const config = ConfigSchema.parse({
+      mirror: { enabled: false },
       paidStorage: {
         enabled: true,
         quotaBytesPerUnit: 1000,
@@ -95,6 +106,7 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
     assertEquals(payments.createCalls, 1);
 
     const repricedConfig = ConfigSchema.parse({
+      mirror: { enabled: false },
       paidStorage: {
         enabled: true,
         quotaBytesPerUnit: 1000,
@@ -158,6 +170,37 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
     assertEquals(quota.reservedBytes, 500);
     assertEquals(quota.availableBytes, 100);
 
+    assertEquals(
+      await renewStorageReservation(db, {
+        id: "reservation-1",
+        pubkey,
+        sizeBytes: 500,
+        now: now + 599,
+        expiresAt: now + 1199,
+      }),
+      true,
+    );
+    assertEquals(
+      await reserveStorageQuota(db, {
+        id: "reservation-after-expiry",
+        pubkey,
+        sizeBytes: 500,
+        now: now + 1200,
+        expiresAt: now + 1800,
+      }),
+      true,
+    );
+    assertEquals(
+      await renewStorageReservation(db, {
+        id: "reservation-1",
+        pubkey,
+        sizeBytes: 500,
+        now: now + 1200,
+        expiresAt: now + 1800,
+      }),
+      false,
+    );
+
     const grantsBeforeExtension = await service.getActiveGrants(pubkey);
     const extension = await service.createExtensionPurchase(pubkey, 2);
     assertEquals(extension.purchaseType, "extension");
@@ -182,11 +225,73 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
   }
 });
 
+Deno.test("paid storage rejects unsafe routes and mismatched Cashu quote terms", async () => {
+  assertThrows(
+    () =>
+      ConfigSchema.parse({
+        paidStorage: { enabled: true },
+        mirror: { enabled: true },
+      }),
+    Error,
+    "Mirror uploads must be disabled",
+  );
+  assertThrows(
+    () =>
+      ConfigSchema.parse({
+        paidStorage: { enabled: true },
+        mirror: { enabled: false },
+        media: { enabled: true },
+      }),
+    Error,
+    "Media uploads must be disabled",
+  );
+  assertThrows(
+    () =>
+      ConfigSchema.parse({
+        paidStorage: {
+          enabled: true,
+          treasury: { enabled: true },
+        },
+        mirror: { enabled: false },
+      }),
+    Error,
+    "treasury Lightning Address is required",
+  );
+
+  const tmpDir = await Deno.makeTempDir({ prefix: "blossom_quote_terms_" });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  try {
+    const config = ConfigSchema.parse({
+      mirror: { enabled: false },
+      paidStorage: { enabled: true, priceSats: 20 },
+    });
+    const payments = new FakePayments();
+    payments.createQuote = () =>
+      Promise.resolve({
+        providerQuoteId: "wrong-amount",
+        invoice: "lnbc-1",
+        expiresAt: Math.floor(Date.now() / 1000) + 600,
+        amountSats: 1,
+        unit: "sat",
+      });
+    const service = new PaidStorageService(db, config.paidStorage, payments);
+    await assertRejects(
+      () => service.getOrCreatePurchase("e".repeat(64), 1),
+      Error,
+      "does not match",
+    );
+  } finally {
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 Deno.test("paid storage durably forwards settled revenue to the configured wallet once", async () => {
   const tmpDir = await Deno.makeTempDir({ prefix: "blossom_treasury_" });
   const db = await initDb({ path: join(tmpDir, "test.db") });
   try {
     const config = ConfigSchema.parse({
+      mirror: { enabled: false },
       paidStorage: {
         enabled: true,
         quotaBytesPerUnit: 1000,

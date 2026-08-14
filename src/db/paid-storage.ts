@@ -339,6 +339,45 @@ export async function reserveStorageQuota(
   return (rs.rowsAffected ?? 0) > 0;
 }
 
+/**
+ * Renews one live upload reservation while atomically revalidating the user's
+ * current grants, owned bytes, and every competing reservation.
+ */
+export async function renewStorageReservation(
+  db: Client,
+  input: {
+    id: string;
+    pubkey: string;
+    sizeBytes: number;
+    now: number;
+    expiresAt: number;
+  },
+): Promise<boolean> {
+  const rs = await db.execute({
+    sql: `UPDATE upload_reservations
+          SET size_bytes = ?, expires_at = ?
+          WHERE id = ? AND pubkey = ?
+            AND ? <=
+              COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0)
+              - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0)
+              - COALESCE((SELECT SUM(size_bytes) FROM upload_reservations WHERE pubkey = ? AND id != ? AND expires_at > ?), 0)`,
+    args: [
+      input.sizeBytes,
+      input.expiresAt,
+      input.id,
+      input.pubkey,
+      input.sizeBytes,
+      input.pubkey,
+      input.now,
+      input.pubkey,
+      input.pubkey,
+      input.id,
+      input.now,
+    ],
+  });
+  return (rs.rowsAffected ?? 0) === 1;
+}
+
 export async function releaseStorageReservation(
   db: Client,
   id: string,

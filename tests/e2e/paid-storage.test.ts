@@ -26,18 +26,27 @@ const secretKey = generateSecretKey();
 class FakePayments implements LightningQuoteProvider {
   state: LightningQuoteState = "pending";
   createCalls = 0;
+  amounts = new Map<string, number>();
 
   createQuote(amountSats: number) {
     this.createCalls++;
+    const providerQuoteId = `paid-storage-e2e-quote-${this.createCalls}`;
+    this.amounts.set(providerQuoteId, amountSats);
     return Promise.resolve({
-      providerQuoteId: `paid-storage-e2e-quote-${this.createCalls}`,
+      providerQuoteId,
       invoice: `lnbc-${amountSats}`,
       expiresAt: Math.floor(Date.now() / 1000) + 600,
+      amountSats,
+      unit: "sat",
     });
   }
 
-  checkQuote(): Promise<LightningQuoteState> {
-    return Promise.resolve(this.state);
+  checkQuote(providerQuoteId: string) {
+    return Promise.resolve({
+      state: this.state,
+      amountSats: this.amounts.get(providerQuoteId) ?? 0,
+      unit: "sat",
+    });
   }
 }
 
@@ -72,6 +81,7 @@ Deno.test({
     const config = ConfigSchema.parse({
       publicDomain: "localhost",
       landing: { enabled: false },
+      mirror: { enabled: false },
       storage: { rules: [{ type: "*", expiration: "1 year" }] },
       upload: { enabled: true, requireAuth: true },
       paidStorage: {

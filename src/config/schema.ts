@@ -551,19 +551,28 @@ const PaidStorageSchema = z.object({
       enabled: z.boolean().default(false).describe(
         "Forward settled storage revenue through the Cashu mint to the configured Lightning Address.",
       ),
-      lightningAddress: z.string().regex(/^[^@\s]+@[^@\s]+$/).default(
-        "iefan@walletofsatoshi.com",
-      ).describe("Lightning Address that receives paid-storage revenue."),
+      lightningAddress: z.string().regex(/^[^@\s]+@[^@\s]+$/).optional()
+        .describe("Lightning Address that receives paid-storage revenue."),
       retryIntervalSeconds: z.number().int().min(10).default(60).describe(
         "Interval between durable treasury outbox retry sweeps.",
       ),
+    })
+    .superRefine((treasury, ctx) => {
+      if (treasury.enabled && !treasury.lightningAddress) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["lightningAddress"],
+          message:
+            "A treasury Lightning Address is required when treasury forwarding is enabled.",
+        });
+      }
     })
     .optional()
     .transform((v) =>
       v ??
         z.object({
           enabled: z.boolean().default(false),
-          lightningAddress: z.string().default("iefan@walletofsatoshi.com"),
+          lightningAddress: z.string().optional(),
           retryIntervalSeconds: z.number().int().default(60),
         }).parse({})
     ),
@@ -730,6 +739,24 @@ export const ConfigSchema = z
     report: ReportSchema.optional()
       .transform((v) => v ?? ReportSchema.parse({}))
       .describe("Blob report endpoint settings (BUD-09)."),
+  })
+  .superRefine((config, ctx) => {
+    if (config.paidStorage.enabled && config.mirror.enabled) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mirror", "enabled"],
+        message:
+          "Mirror uploads must be disabled while paid storage is enabled because they do not consume paid quota.",
+      });
+    }
+    if (config.paidStorage.enabled && config.media.enabled) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["media", "enabled"],
+        message:
+          "Media uploads must be disabled while paid storage is enabled because they do not consume paid quota.",
+      });
+    }
   })
   .transform((raw) => {
     // Merge deprecated databasePath into the database section.

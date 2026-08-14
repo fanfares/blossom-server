@@ -39,5 +39,13 @@ paidStorage:
     lightningAddress: iefan@walletofsatoshi.com
     retryIntervalSeconds: 60
 
+# Mirror and media writes bypass the paid upload quota and must remain disabled
+# until those routes participate in the same reservation/finalization protocol.
+mirror:
+  enabled: false
+
+media:
+  enabled: false
+
 landing:
   enabled: true
