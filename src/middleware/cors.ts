@@ -9,7 +9,7 @@ import { cors } from "@hono/hono/cors";
 export const corsMiddleware = cors({
   origin: "*",
   allowHeaders: ["Authorization", "Content-Type", "*"],
-  allowMethods: ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"],
+  allowMethods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
   exposeHeaders: [
     "X-Reason",
     "Content-Range",
