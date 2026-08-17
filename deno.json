@@ -10,6 +10,7 @@
   },
   "tasks": {
     "dev": "deno run --env-file=.env --watch --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-sys --allow-run main.ts",
+    "dev:local": "deno task build && deno task dev config.3001.yml",
     "start": "deno run --env-file=.env --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-sys --allow-run main.ts",
     "test": "deno test --env-file=.env --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-sys tests/unit/ tests/e2e/",
     "build": "deno bundle --config src/landing/client/deno.json --minify --platform browser -o public/client.js src/landing/client/index.tsx",

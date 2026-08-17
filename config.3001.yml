@@ -1,0 +1,86 @@
+# Local paid-storage configuration for the sibling fanfares-next frontend.
+# Run with `deno task dev:local`; no secrets or production storage are used.
+port: 3001
+host: 0.0.0.0
+publicDomain: "localhost"
+
+database:
+  path: data/sqlite.db
+
+storage:
+  backend: local
+  local:
+    dir: ./data/blobs
+  removeWhenNoOwners: false
+  rules:
+    - type: "image/*"
+      expiration: 1 month
+    - type: "video/*"
+      expiration: 1 week
+    - type: "*"
+      expiration: 1 week
+
+upload:
+  enabled: true
+  requireAuth: true
+  maxSize: 2147483648
+  workers: 0
+  maxJobsPerWorker: 4
+  throughputWindowMs: 1000
+  requirePubkeyInRule: false
+
+mirror:
+  enabled: false
+  requireAuth: true
+  connectTimeout: 30000
+  bodyTimeout: 0
+
+delete:
+  requireAuth: true
+
+list:
+  enabled: false
+  requireAuth: false
+  allowListOthers: true
+
+paidStorage:
+  enabled: true
+
+media:
+  # Paid storage requires this endpoint to remain disabled until optimized
+  # derivatives participate in quota accounting.
+  enabled: false
+  requireAuth: true
+  maxSize: 1073741824
+  image:
+    quality: 90
+    progressive: true
+    maxWidth: 1920
+    maxHeight: 1080
+    outputFormat: webp
+    maintainAspectRatio: true
+    keepExif: false
+    fps: 30
+  video:
+    quality: 90
+    maxHeight: 1080
+    maxFps: 30
+    format: mp4
+    audioCodec: aac
+    videoCodec: libx264
+
+prune:
+  initialDelayMs: 60000
+  intervalMs: 30000
+
+landing:
+  enabled: true
+  title: "Fanfares Blossom Server"
+
+report:
+  enabled: true
+
+dashboard:
+  enabled: false
+  username: admin
+  password: ""

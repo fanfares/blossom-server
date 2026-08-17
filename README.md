@@ -73,6 +73,33 @@ deno task build
 deno task dev
 ```
 
+### Local Fanfares paid-storage stack
+
+The tracked `config.3001.yml` is a development-only configuration for the
+sibling `fanfares-next` repository. It uses local disk storage, enables
+paid-storage account and quota routes, and listens on port `3001` so Next.js can
+use port `3000`.
+
+Start Blossom and build its landing-page bundle with one command:
+
+```sh
+deno task dev:local
+```
+
+Then start the sibling frontend in a second terminal:
+
+```sh
+cd ../fanfares-next
+npm install
+npm run dev:local
+```
+
+Open [http://localhost:3000/storage](http://localhost:3000/storage). Local
+SQLite metadata and blob bytes are written under `data/`. The local config keeps
+`/media` disabled because that endpoint does not yet consume paid quota.
+Checkout uses the configured Cashu mint and can create a real Lightning invoice,
+so only pay it intentionally.
+
 For production:
 
 ```sh
