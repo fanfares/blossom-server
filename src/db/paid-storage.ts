@@ -15,6 +15,16 @@ export interface StoragePurchaseRecord {
   paidAt: number | null;
   creditedAt: number | null;
   purchaseType: "new" | "extension";
+  alignedExpiresAt: number | null;
+  baseAmountSats: number;
+  alignmentAmountSats: number;
+}
+
+export interface StorageAlignmentTargetRecord {
+  grantPurchaseId: string;
+  quotaBytes: number;
+  originalExpiresAt: number;
+  targetExpiresAt: number;
 }
 
 export interface StorageGrantRecord {
@@ -50,6 +60,9 @@ function rowToPurchase(
     paidAt: row[11] as number | null,
     creditedAt: row[12] as number | null,
     purchaseType: (row[13] as StoragePurchaseRecord["purchaseType"]) ?? "new",
+    alignedExpiresAt: row[14] === null ? null : Number(row[14]),
+    baseAmountSats: Number(row[15] ?? row[5]),
+    alignmentAmountSats: Number(row[16] ?? 0),
   };
 }
 
@@ -62,7 +75,13 @@ const PURCHASE_SELECT_COLUMNS = `${PURCHASE_COLUMNS},
   CASE WHEN EXISTS (
     SELECT 1 FROM storage_purchase_extensions e
     WHERE e.purchase_id = storage_purchases.id
-  ) THEN 'extension' ELSE 'new' END
+  ) THEN 'extension' ELSE 'new' END,
+  (SELECT a.target_expires_at FROM storage_purchase_alignments a
+   WHERE a.purchase_id = storage_purchases.id),
+  COALESCE((SELECT a.base_amount_sats FROM storage_purchase_alignments a
+            WHERE a.purchase_id = storage_purchases.id), amount_sats),
+  COALESCE((SELECT a.alignment_amount_sats FROM storage_purchase_alignments a
+            WHERE a.purchase_id = storage_purchases.id), 0)
 `;
 
 function storagePurchaseInsert(purchase: StoragePurchaseRecord) {
@@ -117,6 +136,43 @@ export async function insertStorageExtensionPurchase(
   );
 }
 
+export async function insertStorageAlignedPurchase(
+  db: Client,
+  purchase: StoragePurchaseRecord,
+  targetExpiresAt: number,
+  targets: StorageAlignmentTargetRecord[],
+): Promise<void> {
+  await db.batch(
+    [
+      storagePurchaseInsert(purchase),
+      {
+        sql: `INSERT INTO storage_purchase_alignments
+              (purchase_id, target_expires_at, base_amount_sats, alignment_amount_sats)
+              VALUES (?, ?, ?, ?)`,
+        args: [
+          purchase.id,
+          targetExpiresAt,
+          purchase.baseAmountSats,
+          purchase.alignmentAmountSats,
+        ],
+      },
+      ...targets.map((target) => ({
+        sql: `INSERT INTO storage_alignment_targets
+              (purchase_id, grant_purchase_id, quota_bytes, original_expires_at, target_expires_at)
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [
+          purchase.id,
+          target.grantPurchaseId,
+          target.quotaBytes,
+          target.originalExpiresAt,
+          target.targetExpiresAt,
+        ],
+      })),
+    ],
+    "write",
+  );
+}
+
 export async function getStoragePurchase(
   db: Client,
   id: string,
@@ -149,11 +205,59 @@ export async function findPendingStoragePurchase(
               SELECT 1 FROM storage_purchase_extensions e
               WHERE e.purchase_id = storage_purchases.id
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM storage_purchase_alignments a
+              WHERE a.purchase_id = storage_purchases.id
+            )
             AND (invoice_expires IS NULL OR invoice_expires > ?)
           ORDER BY created_at DESC LIMIT 1`,
     args: [pubkey, units, amountSats, quotaBytes, durationSeconds, now],
   });
   return rs.rows[0] ? rowToPurchase(rs.rows[0]) : null;
+}
+
+export async function findPendingStorageAlignedPurchase(
+  db: Client,
+  pubkey: string,
+  units: number,
+  amountSats: number,
+  quotaBytes: number,
+  durationSeconds: number,
+  now: number,
+): Promise<StoragePurchaseRecord | null> {
+  const rs = await db.execute({
+    sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
+          FROM storage_purchases
+          WHERE pubkey = ? AND units = ? AND amount_sats = ?
+            AND quota_bytes = ? AND duration_seconds = ? AND state = 'pending'
+            AND EXISTS (
+              SELECT 1 FROM storage_purchase_alignments a
+              WHERE a.purchase_id = storage_purchases.id
+            )
+            AND (invoice_expires IS NULL OR invoice_expires > ?)
+          ORDER BY created_at DESC LIMIT 1`,
+    args: [pubkey, units, amountSats, quotaBytes, durationSeconds, now],
+  });
+  return rs.rows[0] ? rowToPurchase(rs.rows[0]) : null;
+}
+
+export async function listStorageAlignmentTargets(
+  db: Client,
+  purchaseId: string,
+): Promise<StorageAlignmentTargetRecord[]> {
+  const rs = await db.execute({
+    sql:
+      `SELECT grant_purchase_id, quota_bytes, original_expires_at, target_expires_at
+          FROM storage_alignment_targets WHERE purchase_id = ?
+          ORDER BY grant_purchase_id`,
+    args: [purchaseId],
+  });
+  return rs.rows.map((row) => ({
+    grantPurchaseId: String(row[0]),
+    quotaBytes: Number(row[1]),
+    originalExpiresAt: Number(row[2]),
+    targetExpiresAt: Number(row[3]),
+  }));
 }
 
 /** Finds an unexpired extension whose immutable grant snapshot exactly matches the current target set. */
@@ -253,6 +357,56 @@ export async function creditStoragePurchase(
           now + purchase.durationSeconds,
         ],
       },
+      {
+        sql: `UPDATE storage_purchases
+              SET state = 'paid', paid_at = COALESCE(paid_at, ?), credited_at = COALESCE(credited_at, ?)
+              WHERE id = ?`,
+        args: [now, now, purchase.id],
+      },
+      ...treasuryOutboxStatements(purchase, treasuryDestination, now),
+    ],
+    "write",
+  );
+}
+
+export async function creditStorageAlignedPurchase(
+  db: Client,
+  purchase: StoragePurchaseRecord,
+  now: number,
+  treasuryDestination?: string,
+): Promise<void> {
+  if (purchase.alignedExpiresAt === null) {
+    throw new Error("Aligned storage purchase is missing its target expiry");
+  }
+  const targets = await listStorageAlignmentTargets(db, purchase.id);
+  await db.batch(
+    [
+      {
+        sql: `INSERT OR IGNORE INTO storage_grants
+              (purchase_id, pubkey, quota_bytes, starts_at, expires_at)
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [
+          purchase.id,
+          purchase.pubkey,
+          purchase.quotaBytes,
+          now,
+          purchase.alignedExpiresAt,
+        ],
+      },
+      ...targets.map((target) => ({
+        sql: `UPDATE storage_grants
+              SET expires_at = MAX(expires_at, ?)
+              WHERE purchase_id = ?
+                AND EXISTS (
+                  SELECT 1 FROM storage_purchases p
+                  WHERE p.id = ? AND p.credited_at IS NULL
+                )`,
+        args: [
+          target.targetExpiresAt,
+          target.grantPurchaseId,
+          purchase.id,
+        ],
+      })),
       {
         sql: `UPDATE storage_purchases
               SET state = 'paid', paid_at = COALESCE(paid_at, ?), credited_at = COALESCE(credited_at, ?)

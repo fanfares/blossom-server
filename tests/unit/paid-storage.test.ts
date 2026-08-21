@@ -301,6 +301,102 @@ Deno.test("paid storage rejects unsafe routes and mismatched Cashu quote terms",
   }
 });
 
+Deno.test("aligned storage purchase prices and credits one shared expiry atomically", async () => {
+  const tmpDir = await Deno.makeTempDir({ prefix: "blossom_aligned_storage_" });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  const originalDateNow = Date.now;
+  const fixedNow = 1_900_000_000;
+  Date.now = () => fixedNow * 1000;
+  try {
+    const config = ConfigSchema.parse({
+      mirror: { enabled: false },
+      paidStorage: {
+        enabled: true,
+        quotaBytesPerUnit: 1000,
+        durationDays: 365,
+        priceSats: 10,
+      },
+    });
+    const payments = new FakePayments();
+    const service = new PaidStorageService(db, config.paidStorage, payments);
+    const pubkey = "7".repeat(64);
+    const original = await service.getOrCreatePurchase(pubkey, 2, 1);
+    payments.state = "paid";
+    await service.refreshPurchase(original.id, pubkey);
+    payments.state = "pending";
+
+    const preview = await service.previewPurchase(pubkey, 1, 2, true);
+    assertEquals(preview.alignExpiry, true);
+    assertEquals(preview.baseAmountSats, 20);
+    assertEquals(preview.alignmentAmountSats, 20);
+    assertEquals(preview.amountSats, 40);
+    assertEquals(preview.existingStorageBytesExtended, 2000);
+    assertEquals(preview.grantChanges.length, 1);
+
+    const aligned = await service.getOrCreatePurchase(pubkey, 1, 2, true);
+    const reused = await service.getOrCreatePurchase(pubkey, 1, 2, true);
+    assertEquals(reused.id, aligned.id);
+    assertEquals(aligned.alignedExpiresAt, preview.targetExpiresAt);
+    assertEquals(aligned.amountSats, 40);
+    payments.state = "paid";
+    await service.refreshPurchase(aligned.id, pubkey);
+
+    const grants = await service.getActiveGrants(pubkey);
+    assertEquals(grants.length, 2);
+    assertEquals(
+      grants.map((grant) => grant.expiresAt),
+      [preview.targetExpiresAt, preview.targetExpiresAt],
+    );
+    assertEquals((await service.getQuota(pubkey)).quotaBytes, 3000);
+  } finally {
+    Date.now = originalDateNow;
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("aligned storage extends a shorter new selection to the latest active expiry", async () => {
+  const tmpDir = await Deno.makeTempDir({ prefix: "blossom_aligned_new_" });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  const originalDateNow = Date.now;
+  const fixedNow = 1_900_000_000;
+  Date.now = () => fixedNow * 1000;
+  try {
+    const config = ConfigSchema.parse({
+      mirror: { enabled: false },
+      paidStorage: {
+        enabled: true,
+        quotaBytesPerUnit: 1000,
+        durationDays: 365,
+        priceSats: 10,
+      },
+    });
+    const payments = new FakePayments();
+    const service = new PaidStorageService(db, config.paidStorage, payments);
+    const pubkey = "6".repeat(64);
+    const original = await service.getOrCreatePurchase(pubkey, 2, 2);
+    payments.state = "paid";
+    await service.refreshPurchase(original.id, pubkey);
+
+    const preview = await service.previewPurchase(pubkey, 1, 1, true);
+    assertEquals(preview.targetExpiresAt, fixedNow + 2 * 365 * 24 * 60 * 60);
+    assertEquals(preview.newStorageExtraSeconds, 365 * 24 * 60 * 60);
+    assertEquals(preview.existingStorageBytesExtended, 0);
+    assertEquals(preview.baseAmountSats, 10);
+    assertEquals(preview.alignmentAmountSats, 10);
+    assertEquals(preview.amountSats, 20);
+
+    const separate = await service.previewPurchase(pubkey, 1, 1, false);
+    assertEquals(separate.alignExpiry, false);
+    assertEquals(separate.alignmentAmountSats, 0);
+    assertEquals(separate.amountSats, 10);
+  } finally {
+    Date.now = originalDateNow;
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 Deno.test("paid storage hides expired invoices without abandoning uncertain settlement", async () => {
   const tmpDir = await Deno.makeTempDir({ prefix: "blossom_expired_storage_" });
   const db = await initDb({ path: join(tmpDir, "test.db") });

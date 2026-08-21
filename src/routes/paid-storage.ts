@@ -61,6 +61,38 @@ export function buildPaidStorageRouter(
     );
   });
 
+  app.post("/storage/purchases/preview", async (ctx) => {
+    const auth = getStorageAuth(ctx);
+    if (auth instanceof Response) return auth;
+    try {
+      const body = await ctx.req.json<{
+        storageUnits?: number;
+        durationYears?: number;
+        alignExpiry?: boolean;
+      }>();
+      if (
+        body.alignExpiry !== undefined && typeof body.alignExpiry !== "boolean"
+      ) {
+        return errorResponse(ctx, 400, "alignExpiry must be a boolean");
+      }
+      const preview = await service.previewPurchase(
+        auth.pubkey,
+        body.storageUnits ?? 1,
+        body.durationYears ?? 1,
+        body.alignExpiry ?? false,
+      );
+      return ctx.json(preview);
+    } catch (err) {
+      if (err instanceof RangeError) {
+        return errorResponse(ctx, 400, err.message);
+      }
+      if (err instanceof Error && err.message === "Paid storage is disabled") {
+        return errorResponse(ctx, 403, err.message);
+      }
+      return errorResponse(ctx, 400, "Invalid storage purchase preview");
+    }
+  });
+
   app.post("/storage/purchases", async (ctx) => {
     const auth = getStorageAuth(ctx);
     if (auth instanceof Response) return auth;
@@ -68,16 +100,19 @@ export function buildPaidStorageRouter(
     let purchaseType: "new" | "extension" = "new";
     let storageUnits = 1;
     let durationYears = 1;
+    let alignExpiry = false;
     try {
       const body = await ctx.req.json<{
         purchaseType?: "new" | "extension";
         storageUnits?: number;
         durationYears?: number;
         units?: number;
+        alignExpiry?: boolean;
       }>();
       purchaseType = body.purchaseType ?? "new";
       storageUnits = body.storageUnits ?? body.units ?? 1;
       durationYears = body.durationYears ?? 1;
+      alignExpiry = body.alignExpiry ?? false;
     } catch {
       return errorResponse(ctx, 400, "Request body must be valid JSON");
     }
@@ -86,12 +121,23 @@ export function buildPaidStorageRouter(
       if (purchaseType !== "new" && purchaseType !== "extension") {
         return errorResponse(ctx, 400, "Invalid storage purchase type");
       }
+      if (typeof alignExpiry !== "boolean") {
+        return errorResponse(ctx, 400, "alignExpiry must be a boolean");
+      }
+      if (purchaseType === "extension" && alignExpiry) {
+        return errorResponse(
+          ctx,
+          400,
+          "Expiry alignment is available only when buying new storage",
+        );
+      }
       const purchase = purchaseType === "extension"
         ? await service.createExtensionPurchase(auth.pubkey, durationYears)
         : await service.getOrCreatePurchase(
           auth.pubkey,
           storageUnits,
           durationYears,
+          alignExpiry,
         );
       return ctx.json(
         toPublicPurchase(purchase, service.plan.durationDays),
@@ -168,5 +214,9 @@ function toPublicPurchase(
     createdAt: purchase.createdAt,
     paidAt: purchase.paidAt,
     creditedAt: purchase.creditedAt,
+    alignExpiry: purchase.alignedExpiresAt !== null,
+    alignedExpiresAt: purchase.alignedExpiresAt,
+    baseAmountSats: purchase.baseAmountSats,
+    alignmentAmountSats: purchase.alignmentAmountSats,
   };
 }

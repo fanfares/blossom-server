@@ -2,18 +2,23 @@ import type { Client } from "@libsql/client";
 import { ulid } from "@std/ulid";
 import type { PaidStorageConfig } from "../config/schema.ts";
 import {
+  creditStorageAlignedPurchase,
   creditStorageExtensionPurchase,
   creditStoragePurchase,
   expireStoragePurchase,
+  findPendingStorageAlignedPurchase,
   findPendingStorageExtensionPurchase,
   findPendingStoragePurchase,
   getStoragePurchase,
   getStorageQuotaSummary,
+  insertStorageAlignedPurchase,
   insertStorageExtensionPurchase,
   insertStoragePurchase,
   listActiveStorageGrants,
   listPendingStoragePurchases,
+  listStorageAlignmentTargets,
   listStoragePurchases,
+  type StorageAlignmentTargetRecord,
   type StorageGrantRecord,
   type StoragePurchaseRecord,
   type StorageQuotaSummary,
@@ -42,6 +47,20 @@ export interface PaidStoragePlan {
   priceSats: number;
   maxUnitsPerPurchase: number;
   maxDurationYears: number;
+}
+
+export interface StorageAlignmentPreview {
+  storageUnits: number;
+  durationYears: number;
+  alignExpiry: boolean;
+  selectedExpiresAt: number;
+  targetExpiresAt: number;
+  baseAmountSats: number;
+  alignmentAmountSats: number;
+  amountSats: number;
+  newStorageExtraSeconds: number;
+  existingStorageBytesExtended: number;
+  grantChanges: StorageAlignmentTargetRecord[];
 }
 
 /** Coordinates Cashu Lightning quotes with durable annual quota grants. */
@@ -87,25 +106,56 @@ export class PaidStorageService {
     pubkey: string,
     storageUnits: number,
     durationYears = 1,
+    alignExpiry = false,
   ): Promise<StoragePurchaseRecord> {
     if (!this.enabled) throw new Error("Paid storage is disabled");
-    this.validateSelection(storageUnits, durationYears);
-
-    const billableUnits = storageUnits * durationYears;
     const now = this.now();
-    const amountSats = billableUnits * this.config.priceSats;
-    const quotaBytes = storageUnits * this.config.quotaBytesPerUnit;
-    const durationSeconds = durationYears * this.durationSecondsPerYear;
-    const existing = await findPendingStoragePurchase(
-      this.db,
+    const preview = await this.previewPurchase(
       pubkey,
       storageUnits,
-      amountSats,
-      quotaBytes,
-      durationSeconds,
+      durationYears,
+      alignExpiry,
       now,
     );
-    if (existing) return existing;
+    const amountSats = preview.amountSats;
+    const quotaBytes = storageUnits * this.config.quotaBytesPerUnit;
+    const durationSeconds = durationYears * this.durationSecondsPerYear;
+    const existing = preview.alignExpiry
+      ? await findPendingStorageAlignedPurchase(
+        this.db,
+        pubkey,
+        storageUnits,
+        amountSats,
+        quotaBytes,
+        durationSeconds,
+        now,
+      )
+      : await findPendingStoragePurchase(
+        this.db,
+        pubkey,
+        storageUnits,
+        amountSats,
+        quotaBytes,
+        durationSeconds,
+        now,
+      );
+    if (existing) {
+      if (!preview.alignExpiry) return existing;
+      const storedTargets = (await listStorageAlignmentTargets(
+        this.db,
+        existing.id,
+      )).map((target) =>
+        `${target.grantPurchaseId}:${target.quotaBytes}:${target.originalExpiresAt}`
+      ).sort();
+      const currentTargets = preview.grantChanges
+        .map((target) =>
+          `${target.grantPurchaseId}:${target.quotaBytes}:${target.originalExpiresAt}`
+        )
+        .sort();
+      if (storedTargets.join(",") === currentTargets.join(",")) {
+        return existing;
+      }
+    }
 
     const quote = await this.payments.createQuote(
       amountSats,
@@ -129,9 +179,99 @@ export class PaidStorageService {
       paidAt: null,
       creditedAt: null,
       purchaseType: "new",
+      alignedExpiresAt: preview.alignExpiry ? preview.targetExpiresAt : null,
+      baseAmountSats: preview.baseAmountSats,
+      alignmentAmountSats: preview.alignmentAmountSats,
     };
-    await insertStoragePurchase(this.db, purchase);
+    if (preview.alignExpiry) {
+      await insertStorageAlignedPurchase(
+        this.db,
+        purchase,
+        preview.targetExpiresAt,
+        preview.grantChanges,
+      );
+    } else {
+      await insertStoragePurchase(this.db, purchase);
+    }
     return purchase;
+  }
+
+  async previewPurchase(
+    pubkey: string,
+    storageUnits: number,
+    durationYears: number,
+    alignExpiry: boolean,
+    now = this.now(),
+  ): Promise<StorageAlignmentPreview> {
+    if (!this.enabled) throw new Error("Paid storage is disabled");
+    this.validateSelection(storageUnits, durationYears);
+    const selectedExpiresAt = now + durationYears * this.durationSecondsPerYear;
+    const grants = alignExpiry
+      ? await listActiveStorageGrants(this.db, pubkey, now)
+      : [];
+    const shouldAlign = alignExpiry && grants.length > 0;
+    const targetExpiresAt = shouldAlign
+      ? Math.max(selectedExpiresAt, ...grants.map((grant) => grant.expiresAt))
+      : selectedExpiresAt;
+    const grantChanges = shouldAlign
+      ? grants.map((grant) => ({
+        grantPurchaseId: grant.purchaseId,
+        quotaBytes: grant.quotaBytes,
+        originalExpiresAt: grant.expiresAt,
+        targetExpiresAt,
+      }))
+      : [];
+    const newStorageExtraSeconds = targetExpiresAt - selectedExpiresAt;
+    const extraByteSeconds =
+      BigInt(storageUnits * this.config.quotaBytesPerUnit) *
+        BigInt(newStorageExtraSeconds) +
+      grantChanges.reduce(
+        (total, grant) =>
+          total +
+          BigInt(grant.quotaBytes) *
+            BigInt(targetExpiresAt - grant.originalExpiresAt),
+        0n,
+      );
+    const unitYearByteSeconds = BigInt(this.config.quotaBytesPerUnit) *
+      BigInt(this.durationSecondsPerYear);
+    const baseAmountSats = storageUnits * durationYears * this.config.priceSats;
+    const alignmentAmountSats = Number(
+      (extraByteSeconds * BigInt(this.config.priceSats) + unitYearByteSeconds -
+        1n) /
+        unitYearByteSeconds,
+    );
+    const totalByteSeconds =
+      BigInt(storageUnits * this.config.quotaBytesPerUnit) *
+        BigInt(durationYears * this.durationSecondsPerYear) + extraByteSeconds;
+    if (
+      totalByteSeconds >
+        BigInt(this.config.maxUnitsPerPurchase) * unitYearByteSeconds
+    ) {
+      throw new RangeError(
+        "Aligned checkout exceeds the " + this.config.maxUnitsPerPurchase +
+          " GiB-year checkout limit",
+      );
+    }
+    return {
+      storageUnits,
+      durationYears,
+      alignExpiry: shouldAlign,
+      selectedExpiresAt,
+      targetExpiresAt,
+      baseAmountSats,
+      alignmentAmountSats,
+      amountSats: baseAmountSats + alignmentAmountSats,
+      newStorageExtraSeconds,
+      existingStorageBytesExtended: grantChanges.reduce(
+        (total, grant) =>
+          total +
+          (grant.originalExpiresAt < grant.targetExpiresAt
+            ? grant.quotaBytes
+            : 0),
+        0,
+      ),
+      grantChanges,
+    };
   }
 
   async createExtensionPurchase(
@@ -204,6 +344,9 @@ export class PaidStorageService {
       paidAt: null,
       creditedAt: null,
       purchaseType: "extension",
+      alignedExpiresAt: null,
+      baseAmountSats: amountSats,
+      alignmentAmountSats: 0,
     };
     await insertStorageExtensionPurchase(this.db, purchase, targets);
     return purchase;
@@ -256,7 +399,14 @@ export class PaidStorageService {
     }
     if (providerStatus.state === "paid") {
       const now = this.now();
-      if (purchase.purchaseType === "extension") {
+      if (purchase.alignedExpiresAt !== null) {
+        await creditStorageAlignedPurchase(
+          this.db,
+          purchase,
+          now,
+          this.treasuryDestination,
+        );
+      } else if (purchase.purchaseType === "extension") {
         await creditStorageExtensionPurchase(
           this.db,
           purchase,

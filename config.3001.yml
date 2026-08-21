@@ -45,6 +45,8 @@ list:
 
 paidStorage:
   enabled: true
+  priceUsdCents: 100
+  priceSats: 10
 
 media:
   # Paid storage requires this endpoint to remain disabled until optimized

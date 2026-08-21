@@ -191,6 +191,71 @@ Deno.test({
         extendedAccountBody.grants[0].expiresAt,
         originalExpiry + 2 * 365 * 24 * 60 * 60,
       );
+
+      const alignmentPreview = await app.fetch(
+        new Request("http://localhost/storage/purchases/preview", {
+          method: "POST",
+          headers: {
+            Authorization: authorization("storage"),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            storageUnits: 1,
+            durationYears: 1,
+            alignExpiry: true,
+          }),
+        }),
+      );
+      assertEquals(alignmentPreview.status, 200);
+      const alignmentPreviewBody = await alignmentPreview.json();
+      assertEquals(alignmentPreviewBody.alignExpiry, true);
+      assertEquals(alignmentPreviewBody.baseAmountSats, 25);
+      assertEquals(alignmentPreviewBody.alignmentAmountSats, 50);
+      assertEquals(alignmentPreviewBody.amountSats, 75);
+
+      const aligned = await app.fetch(
+        new Request("http://localhost/storage/purchases", {
+          method: "POST",
+          headers: {
+            Authorization: authorization("storage"),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            purchaseType: "new",
+            storageUnits: 1,
+            durationYears: 1,
+            alignExpiry: true,
+          }),
+        }),
+      );
+      assertEquals(aligned.status, 201);
+      const alignedBody = await aligned.json();
+      assertEquals(alignedBody.alignExpiry, true);
+      assertEquals(alignedBody.amountSats, 75);
+
+      const alignedSettled = await app.fetch(
+        new Request(
+          `http://localhost/storage/purchases/${alignedBody.id}`,
+          { headers: { Authorization: authorization("storage") } },
+        ),
+      );
+      assertEquals(alignedSettled.status, 200);
+      const alignedAccount = await app.fetch(
+        new Request("http://localhost/storage/account", {
+          headers: { Authorization: authorization("storage") },
+        }),
+      );
+      const alignedAccountBody = await alignedAccount.json();
+      assertEquals(alignedAccountBody.grants.length, 2);
+      assertEquals(
+        alignedAccountBody.grants.map((grant: { expiresAt: number }) =>
+          grant.expiresAt
+        ),
+        [
+          extendedAccountBody.grants[0].expiresAt,
+          extendedAccountBody.grants[0].expiresAt,
+        ],
+      );
     } finally {
       pool.shutdown();
       db.close();
