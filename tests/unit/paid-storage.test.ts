@@ -301,6 +301,51 @@ Deno.test("paid storage rejects unsafe routes and mismatched Cashu quote terms",
   }
 });
 
+Deno.test("paid storage hides expired invoices without abandoning uncertain settlement", async () => {
+  const tmpDir = await Deno.makeTempDir({ prefix: "blossom_expired_storage_" });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  try {
+    const config = ConfigSchema.parse({
+      mirror: { enabled: false },
+      paidStorage: { enabled: true, priceSats: 20 },
+    });
+    const payments = new FakePayments();
+    payments.createQuote = (amountSats: number) =>
+      Promise.resolve({
+        providerQuoteId: "expired-quote",
+        invoice: "lnbc-20-expired",
+        expiresAt: Math.floor(Date.now() / 1000) - 1,
+        amountSats,
+        unit: "sat",
+      });
+    payments.checkQuote = () => Promise.reject(new Error("quote not found"));
+    const service = new PaidStorageService(db, config.paidStorage, payments);
+    const pubkey = "8".repeat(64);
+    const purchase = await service.getOrCreatePurchase(pubkey, 1);
+
+    assertEquals(
+      (await service.refreshPurchase(purchase.id, pubkey))?.state,
+      "expired",
+    );
+    assertEquals((await service.listPurchases(pubkey))[0].state, "expired");
+    const durable = await db.execute({
+      sql: "SELECT state FROM storage_purchases WHERE id = ?",
+      args: [purchase.id],
+    });
+    assertEquals(durable.rows[0]?.[0], "pending");
+
+    payments.checkQuote = () =>
+      Promise.resolve({ state: "paid", amountSats: 20, unit: "sat" });
+    assertEquals(
+      (await service.refreshPurchase(purchase.id, pubkey))?.state,
+      "paid",
+    );
+  } finally {
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
 Deno.test("paid storage durably forwards settled revenue to the configured wallet once", async () => {
   const tmpDir = await Deno.makeTempDir({ prefix: "blossom_treasury_" });
   const db = await initDb({ path: join(tmpDir, "test.db") });

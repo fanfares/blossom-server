@@ -234,9 +234,20 @@ export class PaidStorageService {
     const purchase = await getStoragePurchase(this.db, id, pubkey);
     if (!purchase || purchase.state !== "pending") return purchase;
 
-    const providerStatus = await this.payments.checkQuote(
-      purchase.providerQuoteId,
-    );
+    let providerStatus;
+    try {
+      providerStatus = await this.payments.checkQuote(
+        purchase.providerQuoteId,
+      );
+    } catch (error) {
+      if (this.isInvoiceExpired(purchase)) {
+        // Keep the durable row pending so a later healthy mint check can still
+        // credit a payment made immediately before expiry. The public response
+        // is terminal because the invoice can no longer accept a new payment.
+        return { ...purchase, state: "expired" };
+      }
+      throw error;
+    }
     this.assertQuoteTerms(providerStatus, purchase.amountSats);
     if (providerStatus.state === "issued") {
       throw new Error(
@@ -272,6 +283,10 @@ export class PaidStorageService {
       await expireStoragePurchase(this.db, purchase.id);
       return await getStoragePurchase(this.db, id, pubkey);
     }
+    if (this.isInvoiceExpired(purchase)) {
+      await expireStoragePurchase(this.db, purchase.id);
+      return await getStoragePurchase(this.db, id, pubkey);
+    }
     return purchase;
   }
 
@@ -299,7 +314,18 @@ export class PaidStorageService {
 
   /** Returns the authenticated buyer's durable purchase history for cross-device recovery. */
   async listPurchases(pubkey: string): Promise<StoragePurchaseRecord[]> {
-    return await listStoragePurchases(this.db, pubkey);
+    const purchases = await listStoragePurchases(this.db, pubkey);
+    return purchases.map((purchase) =>
+      this.isInvoiceExpired(purchase)
+        ? { ...purchase, state: "expired" }
+        : purchase
+    );
+  }
+
+  /** Reports whether a still-pending BOLT11 quote is past its server-recorded deadline. */
+  private isInvoiceExpired(purchase: StoragePurchaseRecord): boolean {
+    return purchase.state === "pending" && purchase.invoiceExpires !== null &&
+      purchase.invoiceExpires <= this.now();
   }
 
   /** Fails closed when the mint returns terms that differ from the purchase. */
