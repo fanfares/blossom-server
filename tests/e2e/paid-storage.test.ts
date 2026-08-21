@@ -164,6 +164,15 @@ Deno.test({
       assertEquals(extensionBody.durationYears, 2);
       assertEquals(extensionBody.amountSats, 50);
 
+      const recovered = await app.fetch(
+        new Request("http://localhost/storage/purchases", {
+          headers: { Authorization: authorization("storage") },
+        }),
+      );
+      assertEquals(recovered.status, 200);
+      const recoveredBody = await recovered.json();
+      assertEquals(recoveredBody[0].id, extensionBody.id);
+
       const extensionSettled = await app.fetch(
         new Request(
           `http://localhost/storage/purchases/${extensionBody.id}`,

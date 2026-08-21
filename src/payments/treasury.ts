@@ -8,6 +8,7 @@ import {
 } from "@cashu/cashu-ts";
 import { decodeBase64, encodeBase64 } from "@std/encoding/base64";
 import { fetchPublicHttpUrl } from "../utils/public-http.ts";
+import { withPaymentTimeout } from "./timeout.ts";
 
 export interface PreparedTreasuryPayout {
   meltPreviewJson: string;
@@ -43,25 +44,32 @@ interface LightningAddressDetails {
 export class CashuTreasuryForwarder implements TreasuryForwarder {
   private walletPromise: Promise<Wallet> | null = null;
 
-  constructor(private readonly mintUrl: string) {}
+  constructor(
+    private readonly mintUrl: string,
+    private readonly walletFactory: (mintUrl: string) => Wallet = (url) =>
+      new Wallet(url, { unit: "sat" }),
+    private readonly operationTimeoutMs = 15_000,
+  ) {}
 
   async prepareClaim(
     amountSats: number,
     providerQuoteId: string,
   ): Promise<string> {
     const wallet = await this.getWallet();
-    const preview = await wallet.prepareMint(
-      "bolt11",
-      amountSats,
-      providerQuoteId,
+    const preview = await withPaymentTimeout(
+      wallet.prepareMint("bolt11", amountSats, providerQuoteId),
+      this.operationTimeoutMs,
+      "Cashu treasury claim preparation",
     );
     return serializePreview(preview);
   }
 
   async completeClaim(mintPreviewJson: string): Promise<string> {
     const wallet = await this.getWallet();
-    const proofs = await wallet.completeMint(
-      deserializeMintPreview(mintPreviewJson),
+    const proofs = await withPaymentTimeout(
+      wallet.completeMint(deserializeMintPreview(mintPreviewJson)),
+      this.operationTimeoutMs,
+      "Cashu treasury claim completion",
     );
     return JSON.stringify(proofs);
   }
@@ -81,10 +89,12 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
     }
 
     const details = await resolveLightningAddress(destination);
-    let amountSats = Math.min(
-      grossAmountSats,
-      Math.floor(details.maxSendableMsats / 1000),
-    );
+    if (details.maxSendableMsats < grossAmountSats * 1000) {
+      throw new Error(
+        "Treasury destination cannot receive the full settled purchase amount",
+      );
+    }
+    let amountSats = grossAmountSats;
     for (let attempt = 0; attempt < 8; attempt += 1) {
       if (amountSats * 1000 < details.minSendableMsats) {
         throw new Error(
@@ -96,7 +106,11 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
         amountSats,
         destination,
       );
-      const quote = await wallet.createMeltQuoteBolt11(invoice);
+      const quote = await withPaymentTimeout(
+        wallet.createMeltQuoteBolt11(invoice),
+        this.operationTimeoutMs,
+        "Cashu treasury melt quote",
+      );
       if (quote.amount !== amountSats) {
         throw new Error(
           "Treasury invoice amount does not match its Cashu melt quote",
@@ -104,7 +118,11 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
       }
       const required = quote.amount + quote.fee_reserve;
       if (required <= available) {
-        const preview = await wallet.prepareMelt("bolt11", quote, proofs);
+        const preview = await withPaymentTimeout(
+          wallet.prepareMelt("bolt11", quote, proofs),
+          this.operationTimeoutMs,
+          "Cashu treasury melt preparation",
+        );
         return {
           meltPreviewJson: serializePreview(preview),
           forwardedAmountSats: quote.amount,
@@ -122,8 +140,10 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
     meltPreviewJson: string,
   ): Promise<CompletedTreasuryPayout> {
     const wallet = await this.getWallet();
-    const result = await wallet.completeMelt(
-      deserializeMeltPreview(meltPreviewJson),
+    const result = await withPaymentTimeout(
+      wallet.completeMelt(deserializeMeltPreview(meltPreviewJson)),
+      this.operationTimeoutMs,
+      "Cashu treasury melt completion",
     );
     const state = String(result.quote.state).toUpperCase();
     return {
@@ -136,10 +156,20 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
   /** Loads the configured Cashu mint once for all quote claims and treasury melts. */
   private async getWallet(): Promise<Wallet> {
     if (!this.walletPromise) {
-      const wallet = new Wallet(this.mintUrl, { unit: "sat" });
-      this.walletPromise = wallet.loadMint().then(() => wallet);
+      const wallet = this.walletFactory(this.mintUrl);
+      this.walletPromise = withPaymentTimeout(
+        wallet.loadMint(),
+        this.operationTimeoutMs,
+        "Cashu mint initialization",
+      ).then(() => wallet);
     }
-    return await this.walletPromise;
+    const pending = this.walletPromise;
+    try {
+      return await pending;
+    } catch (error) {
+      if (this.walletPromise === pending) this.walletPromise = null;
+      throw error;
+    }
   }
 }
 

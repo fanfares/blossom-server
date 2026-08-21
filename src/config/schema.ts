@@ -211,7 +211,7 @@ const UploadSchema = z.object({
     .number()
     .int()
     .min(100)
-    .default(20)
+    .default(1_000)
     .describe(
       "How often (ms) each worker reports its throughput to the pool. The pool uses this to route new uploads to the least-loaded worker. Lower = more responsive; higher = less overhead.",
     ),
@@ -532,7 +532,7 @@ const PaidStorageSchema = z.object({
       mintUrl: z
         .string()
         .url()
-        .default("https://mint.minibits.cash/Bitcoin")
+        .default("https://mint.macadamia.cash")
         .describe(
           "Cashu mint used to create and verify Lightning mint quotes for storage purchases.",
         ),
@@ -542,7 +542,7 @@ const PaidStorageSchema = z.object({
       v ??
         z.object({
           mintUrl: z.string().url().default(
-            "https://mint.minibits.cash/Bitcoin",
+            "https://mint.macadamia.cash",
           ),
         }).parse({})
     ),

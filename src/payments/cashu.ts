@@ -1,4 +1,5 @@
 import { Wallet } from "@cashu/cashu-ts";
+import { withPaymentTimeout } from "./timeout.ts";
 
 export interface LightningQuote {
   providerQuoteId: string;
@@ -25,11 +26,20 @@ export interface LightningQuoteProvider {
 export class CashuPaymentProvider implements LightningQuoteProvider {
   private walletPromise: Promise<Wallet> | null = null;
 
-  constructor(private readonly mintUrl: string) {}
+  constructor(
+    private readonly mintUrl: string,
+    private readonly walletFactory: (mintUrl: string) => Wallet = (url) =>
+      new Wallet(url, { unit: "sat" }),
+    private readonly operationTimeoutMs = 15_000,
+  ) {}
 
   async createQuote(amountSats: number, memo: string): Promise<LightningQuote> {
     const wallet = await this.getWallet();
-    const quote = await wallet.createMintQuoteBolt11(amountSats, memo);
+    const quote = await withPaymentTimeout(
+      wallet.createMintQuoteBolt11(amountSats, memo),
+      this.operationTimeoutMs,
+      "Cashu quote creation",
+    );
     return {
       providerQuoteId: String(quote.quote),
       invoice: String(quote.request),
@@ -41,7 +51,11 @@ export class CashuPaymentProvider implements LightningQuoteProvider {
 
   async checkQuote(providerQuoteId: string): Promise<LightningQuoteStatus> {
     const wallet = await this.getWallet();
-    const quote = await wallet.checkMintQuoteBolt11(providerQuoteId);
+    const quote = await withPaymentTimeout(
+      wallet.checkMintQuoteBolt11(providerQuoteId),
+      this.operationTimeoutMs,
+      "Cashu quote verification",
+    );
     const state = String(quote.state ?? "").toUpperCase();
     return {
       state: state === "PAID"
@@ -58,10 +72,20 @@ export class CashuPaymentProvider implements LightningQuoteProvider {
 
   private async getWallet(): Promise<Wallet> {
     if (!this.walletPromise) {
-      const wallet = new Wallet(this.mintUrl, { unit: "sat" });
-      this.walletPromise = wallet.loadMint().then(() => wallet);
+      const wallet = this.walletFactory(this.mintUrl);
+      this.walletPromise = withPaymentTimeout(
+        wallet.loadMint(),
+        this.operationTimeoutMs,
+        "Cashu mint initialization",
+      ).then(() => wallet);
     }
-    return await this.walletPromise;
+    const pending = this.walletPromise;
+    try {
+      return await pending;
+    } catch (error) {
+      if (this.walletPromise === pending) this.walletPromise = null;
+      throw error;
+    }
   }
 
   private toOptionalInt(value: unknown): number | null {

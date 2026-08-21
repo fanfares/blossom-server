@@ -156,6 +156,83 @@ export async function findPendingStoragePurchase(
   return rs.rows[0] ? rowToPurchase(rs.rows[0]) : null;
 }
 
+/** Finds an unexpired extension whose immutable grant snapshot exactly matches the current target set. */
+export async function findPendingStorageExtensionPurchase(
+  db: Client,
+  pubkey: string,
+  units: number,
+  amountSats: number,
+  quotaBytes: number,
+  durationSeconds: number,
+  targetPurchaseIds: string[],
+  now: number,
+): Promise<StoragePurchaseRecord | null> {
+  if (targetPurchaseIds.length === 0) return null;
+  const placeholders = targetPurchaseIds.map(() => "?").join(", ");
+  const rs = await db.execute({
+    sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
+          FROM storage_purchases
+          WHERE pubkey = ? AND units = ? AND amount_sats = ?
+            AND quota_bytes = ? AND duration_seconds = ? AND state = 'pending'
+            AND (invoice_expires IS NULL OR invoice_expires > ?)
+            AND EXISTS (
+              SELECT 1 FROM storage_purchase_extensions e
+              WHERE e.purchase_id = storage_purchases.id
+            )
+            AND (SELECT COUNT(*) FROM storage_extension_targets t
+                 WHERE t.purchase_id = storage_purchases.id) = ?
+            AND (SELECT COUNT(*) FROM storage_extension_targets t
+                 WHERE t.purchase_id = storage_purchases.id
+                   AND t.grant_purchase_id IN (${placeholders})) = ?
+          ORDER BY created_at DESC LIMIT 1`,
+    args: [
+      pubkey,
+      units,
+      amountSats,
+      quotaBytes,
+      durationSeconds,
+      now,
+      targetPurchaseIds.length,
+      ...targetPurchaseIds,
+      targetPurchaseIds.length,
+    ],
+  });
+  return rs.rows[0] ? rowToPurchase(rs.rows[0]) : null;
+}
+
+/** Lists purchases owned by one signer so clients can recover checkout IDs after losing local state. */
+export async function listStoragePurchases(
+  db: Client,
+  pubkey: string,
+  limit = 100,
+): Promise<StoragePurchaseRecord[]> {
+  const rs = await db.execute({
+    sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
+          FROM storage_purchases
+          WHERE pubkey = ?
+          ORDER BY created_at DESC, id DESC LIMIT ?`,
+    args: [pubkey, limit],
+  });
+  return rs.rows.map(rowToPurchase);
+}
+
+/** Lists a bounded settlement batch independently of any browser request. */
+export async function listPendingStoragePurchases(
+  db: Client,
+  limit = 100,
+  pubkey?: string,
+): Promise<StoragePurchaseRecord[]> {
+  const rs = await db.execute({
+    sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
+          FROM storage_purchases
+          WHERE state = 'pending'
+            AND (? IS NULL OR pubkey = ?)
+          ORDER BY created_at ASC LIMIT ?`,
+    args: [pubkey ?? null, pubkey ?? null, limit],
+  });
+  return rs.rows.map(rowToPurchase);
+}
+
 export async function creditStoragePurchase(
   db: Client,
   purchase: StoragePurchaseRecord,

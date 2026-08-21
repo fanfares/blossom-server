@@ -141,6 +141,21 @@ if (config.dashboard.enabled) {
 const paidStorageService = new PaidStorageService(db, config.paidStorage);
 const app = await buildApp(db, storage, config, { paidStorageService });
 
+// Reconcile paid quotes independently of browser polling so a reload, crash, or
+// second device cannot strand customer money without activating its grant.
+let settlementTimeout: ReturnType<typeof setTimeout> | undefined;
+if (config.paidStorage.enabled) {
+  const runSettlementSweep = async () => {
+    try {
+      await paidStorageService.processPendingPurchases();
+    } catch (error) {
+      console.error("[paid-storage] Unexpected settlement-loop error:", error);
+    }
+    settlementTimeout = setTimeout(runSettlementSweep, 30_000);
+  };
+  settlementTimeout = setTimeout(runSettlementSweep, 5_000);
+}
+
 // Retry the durable treasury outbox independently from customer requests.
 let treasuryTimeout: ReturnType<typeof setTimeout> | undefined;
 if (config.paidStorage.enabled && config.paidStorage.treasury.enabled) {
@@ -243,6 +258,7 @@ const shutdown = () => {
   console.log("\nShutting down...");
   if (pruneTimeout !== undefined) clearTimeout(pruneTimeout);
   if (treasuryTimeout !== undefined) clearTimeout(treasuryTimeout);
+  if (settlementTimeout !== undefined) clearTimeout(settlementTimeout);
   pool.shutdown();
   server.shutdown();
   db.close();

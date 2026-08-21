@@ -19,6 +19,8 @@ Deno.test("Cloudflare deployment config keeps destructive and storage routes aut
   assertEquals(config.mirror.requireAuth, true);
   assertEquals(config.delete.requireAuth, true);
   assertEquals(config.publicDomain, "blossom.fanfares.live");
+  assertEquals(config.paidStorage.enabled, false);
+  assertEquals(config.paidStorage.treasury.enabled, false);
 });
 
 Deno.test("Cloudflare deployment config restricts writes to the pubkey allowlist", async () => {

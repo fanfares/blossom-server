@@ -5,12 +5,15 @@ import {
   creditStorageExtensionPurchase,
   creditStoragePurchase,
   expireStoragePurchase,
+  findPendingStorageExtensionPurchase,
   findPendingStoragePurchase,
   getStoragePurchase,
   getStorageQuotaSummary,
   insertStorageExtensionPurchase,
   insertStoragePurchase,
   listActiveStorageGrants,
+  listPendingStoragePurchases,
+  listStoragePurchases,
   type StorageGrantRecord,
   type StoragePurchaseRecord,
   type StorageQuotaSummary,
@@ -168,6 +171,17 @@ export class PaidStorageService {
 
     const amountSats = billableUnits * this.config.priceSats;
     const durationSeconds = durationYears * this.durationSecondsPerYear;
+    const existing = await findPendingStorageExtensionPurchase(
+      this.db,
+      pubkey,
+      storageUnits,
+      amountSats,
+      quotaBytes,
+      durationSeconds,
+      targets.map((target) => target.purchaseId),
+      now,
+    );
+    if (existing) return existing;
     const quote = await this.payments.createQuote(
       amountSats,
       "Fanfares Blossom: extend " + storageUnits + " storage unit" +
@@ -259,6 +273,33 @@ export class PaidStorageService {
       return await getStoragePurchase(this.db, id, pubkey);
     }
     return purchase;
+  }
+
+  /** Reconciles a bounded pending-purchase batch without relying on a browser retaining an ID. */
+  async processPendingPurchases(
+    limit = 100,
+    pubkey?: string,
+  ): Promise<void> {
+    const purchases = await listPendingStoragePurchases(
+      this.db,
+      limit,
+      pubkey,
+    );
+    for (const purchase of purchases) {
+      try {
+        await this.refreshPurchase(purchase.id, purchase.pubkey);
+      } catch (error) {
+        console.error(
+          `[paid-storage] Settlement check failed for ${purchase.id}:`,
+          error,
+        );
+      }
+    }
+  }
+
+  /** Returns the authenticated buyer's durable purchase history for cross-device recovery. */
+  async listPurchases(pubkey: string): Promise<StoragePurchaseRecord[]> {
+    return await listStoragePurchases(this.db, pubkey);
   }
 
   /** Fails closed when the mint returns terms that differ from the purchase. */

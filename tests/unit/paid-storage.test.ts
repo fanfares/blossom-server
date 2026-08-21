@@ -7,6 +7,7 @@
 
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { join } from "@std/path";
+import type { Wallet } from "@cashu/cashu-ts";
 import { ConfigSchema } from "../../src/config/schema.ts";
 import { initDb } from "../../src/db/client.ts";
 import { insertBlob } from "../../src/db/blobs.ts";
@@ -20,11 +21,13 @@ import type {
   LightningQuoteProvider,
   LightningQuoteState,
 } from "../../src/payments/cashu.ts";
+import { CashuPaymentProvider } from "../../src/payments/cashu.ts";
 import type {
   CompletedTreasuryPayout,
   PreparedTreasuryPayout,
   TreasuryForwarder,
 } from "../../src/payments/treasury.ts";
+import { CashuTreasuryForwarder } from "../../src/payments/treasury.ts";
 
 class FakePayments implements LightningQuoteProvider {
   state: LightningQuoteState = "pending";
@@ -203,7 +206,9 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
 
     const grantsBeforeExtension = await service.getActiveGrants(pubkey);
     const extension = await service.createExtensionPurchase(pubkey, 2);
+    const reusedExtension = await service.createExtensionPurchase(pubkey, 2);
     assertEquals(extension.purchaseType, "extension");
+    assertEquals(reusedExtension.id, extension.id);
     assertEquals(extension.units, 1);
     assertEquals(extension.amountSats, 50);
     await service.refreshPurchase(extension.id, pubkey);
@@ -219,6 +224,16 @@ Deno.test("paid storage credits purchases and reserves remaining quota atomicall
       grantsAfterSecondRefresh[0].expiresAt,
       grantsAfterExtension[0].expiresAt,
     );
+
+    const recoveredPubkey = "f".repeat(64);
+    const recoverable = await service.getOrCreatePurchase(recoveredPubkey, 1);
+    await service.processPendingPurchases(100, recoveredPubkey);
+    assertEquals((await service.getQuota(recoveredPubkey)).quotaBytes, 1000);
+    assertEquals(
+      (await service.listPurchases(recoveredPubkey))[0].id,
+      recoverable.id,
+    );
+    assertEquals(await service.listPurchases("9".repeat(64)), []);
   } finally {
     db.close();
     await Deno.remove(tmpDir, { recursive: true });
@@ -338,4 +353,78 @@ Deno.test("paid storage durably forwards settled revenue to the configured walle
     db.close();
     await Deno.remove(tmpDir, { recursive: true });
   }
+});
+
+Deno.test("Cashu providers retry wallet initialization after a transient mint failure", async () => {
+  let paymentLoads = 0;
+  const paymentWallet = {
+    loadMint() {
+      paymentLoads++;
+      return paymentLoads === 1
+        ? Promise.reject(new Error("temporary mint failure"))
+        : Promise.resolve();
+    },
+    createMintQuoteBolt11() {
+      return Promise.resolve({
+        quote: "retry-quote",
+        request: "lnbc20",
+        expiry: 1,
+        amount: 20,
+        unit: "sat",
+      });
+    },
+  } as unknown as Wallet;
+  const payments = new CashuPaymentProvider(
+    "https://mint.example",
+    () => paymentWallet,
+  );
+  await assertRejects(
+    () => payments.createQuote(20, "storage"),
+    Error,
+    "temporary mint failure",
+  );
+  assertEquals((await payments.createQuote(20, "storage")).amountSats, 20);
+  assertEquals(paymentLoads, 2);
+
+  let treasuryLoads = 0;
+  const treasuryWallet = {
+    loadMint() {
+      treasuryLoads++;
+      return treasuryLoads === 1
+        ? Promise.reject(new Error("temporary treasury mint failure"))
+        : Promise.resolve();
+    },
+    prepareMint() {
+      return Promise.reject(new Error("continued after retry"));
+    },
+  } as unknown as Wallet;
+  const treasury = new CashuTreasuryForwarder(
+    "https://mint.example",
+    () => treasuryWallet,
+  );
+  await assertRejects(
+    () => treasury.prepareClaim(20, "quote"),
+    Error,
+    "temporary treasury mint failure",
+  );
+  await assertRejects(
+    () => treasury.prepareClaim(20, "quote"),
+    Error,
+    "continued after retry",
+  );
+  assertEquals(treasuryLoads, 2);
+
+  const hangingWallet = {
+    loadMint: () => new Promise<void>(() => {}),
+  } as unknown as Wallet;
+  const bounded = new CashuPaymentProvider(
+    "https://mint.example",
+    () => hangingWallet,
+    5,
+  );
+  await assertRejects(
+    () => bounded.createQuote(20, "storage"),
+    Error,
+    "timed out",
+  );
 });

@@ -26,6 +26,7 @@ export function buildPaidStorageRouter(
     const auth = getStorageAuth(ctx);
     if (auth instanceof Response) return auth;
 
+    await service.processPendingPurchases(100, auth.pubkey);
     const [quota, grants, blobs] = await Promise.all([
       service.getQuota(auth.pubkey),
       service.getActiveGrants(auth.pubkey),
@@ -46,6 +47,18 @@ export function buildPaidStorageRouter(
         uploaded: blob.uploaded,
       })),
     });
+  });
+
+  app.get("/storage/purchases", async (ctx) => {
+    const auth = getStorageAuth(ctx);
+    if (auth instanceof Response) return auth;
+    await service.processPendingPurchases(100, auth.pubkey);
+    const purchases = await service.listPurchases(auth.pubkey);
+    return ctx.json(
+      purchases.map((purchase) =>
+        toPublicPurchase(purchase, service.plan.durationDays)
+      ),
+    );
   });
 
   app.post("/storage/purchases", async (ctx) => {

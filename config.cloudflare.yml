@@ -55,13 +55,15 @@ list:
   requireAuth: false
 
 paidStorage:
-  enabled: true
+  # Enable only after migrations, reconciliation, mint health, and legacy-user
+  # quota policy have been verified in production.
+  enabled: false
   priceSats: 20
   maxDurationYears: 5
   cashu:
-    mintUrl: https://mint.minibits.cash/Bitcoin
+    mintUrl: https://mint.macadamia.cash
   treasury:
-    enabled: true
+    enabled: false
     lightningAddress: iefan@walletofsatoshi.com
     retryIntervalSeconds: 60
 
