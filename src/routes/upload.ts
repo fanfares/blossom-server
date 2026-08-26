@@ -49,6 +49,7 @@ import {
   startStorageReservationLease,
   type StorageReservationLease,
 } from "../paid-storage/reservation.ts";
+import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
 
 /** BUD-02 Blob Descriptor */
 interface BlobDescriptor {
@@ -351,10 +352,12 @@ export function buildUploadRouter(
     }
 
     // --- 6. Dedup: if blob already exists, skip the whole write ---
-    if (xSha256 && (await hasBlob(db, xSha256))) {
-      await ctx.req.raw.body?.cancel();
-      const existing = await getBlob(db, xSha256);
-      if (existing) {
+    if (xSha256) {
+      const dedupResponse = await withBlobMutationLock(xSha256, async () => {
+        if (!(await hasBlob(db, xSha256))) return null;
+        await ctx.req.raw.body?.cancel();
+        const existing = await getBlob(db, xSha256);
+        if (!existing) return null;
         debug(
           debugPrefix,
           `dedup hit — returning existing blob ${xSha256.slice(0, 8)}`,
@@ -377,7 +380,8 @@ export function buildUploadRouter(
             uploaded: existing.uploaded,
           } satisfies BlobDescriptor,
         );
-      }
+      });
+      if (dedupResponse) return dedupResponse;
     }
 
     // --- 7. Acquire worker (503 if pool full — no queue) ---
@@ -485,54 +489,6 @@ export function buildUploadRouter(
       }
     }
 
-    // Re-check the authoritative quota with the worker's exact byte count.
-    // A reservation that expired or lost capacity while the body streamed must
-    // never be converted into ownership after another upload reused its bytes.
-    if (reservationLease && !(await reservationLease.verify(size))) {
-      await storage.abortWrite(session).catch(() => {});
-      await releaseReservation();
-      return errorResponse(
-        ctx,
-        409,
-        "Storage reservation expired or quota changed; retry the upload",
-      );
-    }
-
-    // --- 10. Commit: move verified tmp file to final storage location ---
-    // For local storage: atomic Deno.rename() to <hash>.<ext>.
-    // For S3 storage: stream the verified local tmp file to S3, then delete it.
-    // commitWrite() handles dedup internally (no-op if blob already exists).
-    debug(debugPrefix, `commitWrite start hash=${hash} ext=${ext}`);
-    const t0 = Date.now();
-    try {
-      await storage.commitWrite(session, hash, ext);
-      const t1 = Date.now();
-      debug(debugPrefix, `commitWrite complete elapsed=${t1 - t0}ms`);
-    } catch (err) {
-      await storage.abortWrite(session).catch(() => {});
-      await releaseReservation();
-      throw err;
-    }
-
-    // --- 10b. Verify the committed blob is actually retrievable ---
-    // A successful upload response is a promise that the blob can be fetched.
-    // If storage cannot see the object we just committed, fail the upload
-    // loudly instead of returning a descriptor URL that will 404 (the failure
-    // mode that silently discarded application/octet-stream uploads on R2).
-    if (!(await storage.has(hash, ext))) {
-      await releaseReservation();
-      debug(
-        debugPrefix,
-        `post-commit verification FAILED — blob not visible in storage hash=${hash} ext=${ext}`,
-      );
-      return errorResponse(
-        ctx,
-        500,
-        "Upload failed: blob did not persist to storage",
-      );
-    }
-
-    // --- 11. Insert metadata ---
     const now = Math.floor(Date.now() / 1000);
     const blobRecord = {
       sha256: hash,
@@ -540,19 +496,65 @@ export function buildUploadRouter(
       type: mimeType !== "application/octet-stream" ? mimeType : null,
       uploaded: now,
     };
-    debug(debugPrefix, `insertBlob start hash=${hash}`);
-    const t2 = Date.now();
-    try {
-      await insertBlob(
-        db,
-        blobRecord,
-        auth?.pubkey ?? "anonymous",
-      );
-    } finally {
-      await releaseReservation();
-    }
-    const t3 = Date.now();
-    debug(debugPrefix, `insertBlob complete elapsed=${t3 - t2}ms`);
+    const persistenceError = await withBlobMutationLock(hash, async () => {
+      // Re-check the authoritative quota after waiting for any same-hash prune.
+      if (reservationLease && !(await reservationLease.verify(size))) {
+        await storage.abortWrite(session).catch(() => {});
+        await releaseReservation();
+        return errorResponse(
+          ctx,
+          409,
+          "Storage reservation expired or quota changed; retry the upload",
+        );
+      }
+
+      // --- 10. Commit: move verified tmp file to final storage location ---
+      // For local storage: atomic Deno.rename() to <hash>.<ext>.
+      // For S3 storage: stream the verified local tmp file to S3, then delete it.
+      // commitWrite() handles dedup internally (no-op if blob already exists).
+      debug(debugPrefix, `commitWrite start hash=${hash} ext=${ext}`);
+      const t0 = Date.now();
+      try {
+        await storage.commitWrite(session, hash, ext);
+        const t1 = Date.now();
+        debug(debugPrefix, `commitWrite complete elapsed=${t1 - t0}ms`);
+      } catch (err) {
+        await storage.abortWrite(session).catch(() => {});
+        await releaseReservation();
+        throw err;
+      }
+
+      // --- 10b. Verify the committed blob is actually retrievable ---
+      // A successful upload response is a promise that the blob can be fetched.
+      // If storage cannot see the object we just committed, fail the upload
+      // loudly instead of returning a descriptor URL that will 404 (the failure
+      // mode that silently discarded application/octet-stream uploads on R2).
+      if (!(await storage.has(hash, ext))) {
+        await releaseReservation();
+        debug(
+          debugPrefix,
+          `post-commit verification FAILED — blob not visible in storage hash=${hash} ext=${ext}`,
+        );
+        return errorResponse(
+          ctx,
+          500,
+          "Upload failed: blob did not persist to storage",
+        );
+      }
+
+      // --- 11. Insert metadata before releasing the same-hash lock. ---
+      debug(debugPrefix, `insertBlob start hash=${hash}`);
+      const t2 = Date.now();
+      try {
+        await insertBlob(db, blobRecord, auth?.pubkey ?? "anonymous");
+      } finally {
+        await releaseReservation();
+      }
+      const t3 = Date.now();
+      debug(debugPrefix, `insertBlob complete elapsed=${t3 - t2}ms`);
+      return null;
+    });
+    if (persistenceError) return persistenceError;
 
     // --- 12. Return BlobDescriptor ---
     debug(

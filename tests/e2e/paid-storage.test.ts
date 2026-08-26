@@ -9,7 +9,11 @@
 import { assertEquals } from "@std/assert";
 import { encodeBase64Url } from "@std/encoding/base64url";
 import { join } from "@std/path";
-import { finalizeEvent, generateSecretKey } from "nostr-tools/pure";
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+} from "nostr-tools/pure";
 import type { NostrEvent } from "nostr-tools";
 import { ConfigSchema } from "../../src/config/schema.ts";
 import { initDb } from "../../src/db/client.ts";
@@ -50,7 +54,10 @@ class FakePayments implements LightningQuoteProvider {
   }
 }
 
-function authorization(verb: "upload" | "storage"): string {
+function authorization(
+  verb: "upload" | "storage",
+  signingKey = secretKey,
+): string {
   const now = Math.floor(Date.now() / 1000);
   const event: NostrEvent = finalizeEvent(
     {
@@ -59,7 +66,7 @@ function authorization(verb: "upload" | "storage"): string {
       tags: [["t", verb], ["expiration", String(now + 600)]],
       content: `Authorize ${verb}`,
     },
-    secretKey,
+    signingKey,
   );
   return `Nostr ${
     encodeBase64Url(new TextEncoder().encode(JSON.stringify(event)))
@@ -84,6 +91,10 @@ Deno.test({
       mirror: { enabled: false },
       storage: { rules: [{ type: "*", expiration: "1 year" }] },
       upload: { enabled: true, requireAuth: true },
+      uploadAllowlist: {
+        enabled: true,
+        extraPubkeys: [getPublicKey(secretKey)],
+      },
       paidStorage: {
         enabled: true,
         quotaBytesPerUnit: 1000,
@@ -96,6 +107,19 @@ Deno.test({
     });
 
     try {
+      const unknownIdentityPurchase = await app.fetch(
+        new Request("http://localhost/storage/purchases", {
+          method: "POST",
+          headers: {
+            Authorization: authorization("storage", generateSecretKey()),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ storageUnits: 1, durationYears: 1 }),
+        }),
+      );
+      assertEquals(unknownIdentityPurchase.status, 503);
+      assertEquals(payments.createCalls, 0);
+
       const blocked = await app.fetch(
         new Request("http://localhost/upload", {
           method: "HEAD",

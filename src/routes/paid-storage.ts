@@ -8,6 +8,7 @@ import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import type { PaidStorageService } from "../paid-storage/service.ts";
 import { getBaseUrl, getBlobUrl } from "../utils/url.ts";
+import { assertUploadAllowed } from "../auth/upload-allowlist.ts";
 
 /** Mounts Fanfares paid-storage account and Lightning checkout endpoints. */
 export function buildPaidStorageRouter(
@@ -96,6 +97,17 @@ export function buildPaidStorageRouter(
   app.post("/storage/purchases", async (ctx) => {
     const auth = getStorageAuth(ctx);
     if (auth instanceof Response) return auth;
+
+    // Storage invoices exist to fund creator uploads, so the same early-access
+    // membership gate must run before an external quote or durable row exists.
+    try {
+      await assertUploadAllowed(config, auth.pubkey);
+    } catch (err) {
+      if (err instanceof HTTPException) {
+        return errorResponse(ctx, err.status as 403 | 503, err.message);
+      }
+      throw err;
+    }
 
     let purchaseType: "new" | "extension" = "new";
     let storageUnits = 1;

@@ -4,15 +4,42 @@
  *   - Production upload, mirror, and delete endpoints require BUD-11 authentication
  *   - Production BUD-11 server scoping uses the canonical Fanfares hostname
  *   - Production writes are restricted to the early-access pubkey allowlist
+ *   - Missing deployment secrets fail configuration loading before startup
  * @dependencies config loader and committed Cloudflare deployment config
  * @type unit | deno
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { loadConfig } from "../../src/config/loader.ts";
 
+const CLOUDFLARE_TEST_ENV = {
+  TURSO_DATABASE_URL: "libsql://test-database.turso.io",
+  TURSO_AUTH_TOKEN: "test-database-token",
+  CF_ACCOUNT_ID: "test-cloudflare-account",
+  R2_BUCKET: "test-r2-bucket",
+  R2_ACCESS_KEY_ID: "test-r2-access-key",
+  R2_SECRET_ACCESS_KEY: "test-r2-secret-key",
+};
+
+/** Loads the committed Cloudflare config with non-secret test values and restores the process environment afterward. */
+async function loadTestCloudflareConfig() {
+  const previous = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(CLOUDFLARE_TEST_ENV)) {
+    previous.set(name, Deno.env.get(name));
+    Deno.env.set(name, value);
+  }
+  try {
+    return await loadConfig("config.cloudflare.yml");
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+}
+
 Deno.test("Cloudflare deployment config keeps destructive and storage routes authenticated", async () => {
-  const config = await loadConfig("config.cloudflare.yml");
+  const config = await loadTestCloudflareConfig();
 
   assertEquals(config.upload.requireAuth, true);
   assertEquals(config.mirror.enabled, false);
@@ -24,7 +51,7 @@ Deno.test("Cloudflare deployment config keeps destructive and storage routes aut
 });
 
 Deno.test("Cloudflare deployment config restricts writes to the pubkey allowlist", async () => {
-  const config = await loadConfig("config.cloudflare.yml");
+  const config = await loadTestCloudflareConfig();
 
   assertEquals(config.uploadAllowlist.enabled, true);
   // A curator pubkey and at least one relay are what make the gate effective;
@@ -34,4 +61,26 @@ Deno.test("Cloudflare deployment config restricts writes to the pubkey allowlist
   // Break-glass access must exist so a list or relay problem cannot lock the
   // operator out of their own server.
   assertEquals(config.uploadAllowlist.extraPubkeys.length > 0, true);
+});
+
+Deno.test("Configuration loading rejects a missing environment placeholder", async () => {
+  const variableName = "FANFARES_TEST_REQUIRED_CONFIG_VALUE";
+  const previous = Deno.env.get(variableName);
+  const configPath = await Deno.makeTempFile({ suffix: ".yml" });
+  Deno.env.delete(variableName);
+  try {
+    await Deno.writeTextFile(
+      configPath,
+      `database:\n  path: "\${${variableName}}"\n`,
+    );
+    await assertRejects(
+      () => loadConfig(configPath),
+      Error,
+      `Required environment variable "${variableName}" is not set`,
+    );
+  } finally {
+    await Deno.remove(configPath);
+    if (previous === undefined) Deno.env.delete(variableName);
+    else Deno.env.set(variableName, previous);
+  }
 });

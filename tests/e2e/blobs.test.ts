@@ -163,7 +163,9 @@ Deno.test({
     // unretrievable on the R2 deployment (201 upload, 404 on every GET).
     assertEquals(blobUrl, `/${blobHash}.bin`);
 
-    for (const path of [`/${blobHash}`, `/${blobHash}.bin`, `/${blobHash}.jpg`]) {
+    for (
+      const path of [`/${blobHash}`, `/${blobHash}.bin`, `/${blobHash}.jpg`]
+    ) {
       const res = await app.fetch(new Request(`http://localhost${path}`));
       assertEquals(res.status, 200, `GET ${path} should succeed`);
       const body = new Uint8Array(await res.arrayBuffer());
