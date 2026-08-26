@@ -100,12 +100,25 @@ SQLite metadata and blob bytes are written under `data/`. The local config keeps
 Checkout uses the configured Cashu mint and can create a real Lightning invoice,
 so only pay it intentionally.
 
+`deno task dev:local` uses `data/sqlite.db`. The separate
+`config.paid-storage.example.yml` profile uses `data/paid-storage-dev.db` and is
+an isolated example environment. Switching profiles, or signing in with a
+different Nostr key, shows a different storage account even though the original
+grant remains in its original database. Use the same command, database path, and
+Nostr identity when testing persistence across local restarts.
+
 For production:
 
 ```sh
 deno task build
 deno task start
 ```
+
+The committed Cloudflare profile stores purchases and quota grants in remote
+Turso rather than the container filesystem. `TURSO_DATABASE_URL` and
+`TURSO_AUTH_TOKEN` must be present in the Worker environment; startup fails
+instead of silently falling back to ephemeral SQLite when either value is
+missing.
 
 Pass a custom config path as the first argument:
 

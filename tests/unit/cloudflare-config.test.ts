@@ -4,6 +4,7 @@
  *   - Production upload, mirror, and delete endpoints require BUD-11 authentication
  *   - Production BUD-11 server scoping uses the canonical Fanfares hostname
  *   - Production writes are restricted to the early-access pubkey allowlist
+ *   - Production quota and purchase records use the durable Turso database
  *   - Missing deployment secrets fail configuration loading before startup
  * @dependencies config loader and committed Cloudflare deployment config
  * @type unit | deno
@@ -46,6 +47,11 @@ Deno.test("Cloudflare deployment config keeps destructive and storage routes aut
   assertEquals(config.mirror.requireAuth, true);
   assertEquals(config.delete.requireAuth, true);
   assertEquals(config.publicDomain, "blossom.fanfares.live");
+  assertEquals(config.database.url, CLOUDFLARE_TEST_ENV.TURSO_DATABASE_URL);
+  assertEquals(
+    config.database.authToken,
+    CLOUDFLARE_TEST_ENV.TURSO_AUTH_TOKEN,
+  );
   assertEquals(config.paidStorage.enabled, false);
   assertEquals(config.paidStorage.treasury.enabled, false);
 });
