@@ -92,7 +92,7 @@ export function buildBlobsRouter(
     }
 
     const resolvedSize = blob?.size ?? await storage.size(hash, ext);
-    const mimeType = blob?.type ?? (ext ? contentType(ext) ?? null : null) ??
+    const mimeType = blob?.type ?? (ext ? contentType(ext) : undefined) ??
       "application/octet-stream";
 
     const headers: Record<string, string> = {
