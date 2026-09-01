@@ -134,6 +134,26 @@ Deno.test({
       assertEquals(blocked.headers.get("X-Lightning"), "lnbc-25");
       const purchaseId = blocked.headers.get("X-Storage-Payment-Id") ?? "";
 
+      // A client that skips the BUD-06 preflight must hit the same paywall on
+      // the PUT itself, and must be handed the already-open invoice.
+      const paywalledPut = await app.fetch(
+        new Request("http://localhost/upload", {
+          method: "PUT",
+          headers: {
+            Authorization: authorization("upload"),
+            "Content-Length": "5",
+            "Content-Type": "text/plain",
+          },
+          body: new TextEncoder().encode("hello"),
+        }),
+      );
+      assertEquals(paywalledPut.status, 402);
+      assertEquals(paywalledPut.headers.get("X-Lightning"), "lnbc-25");
+      assertEquals(
+        paywalledPut.headers.get("X-Storage-Payment-Id"),
+        purchaseId,
+      );
+
       payments.state = "paid";
       const settled = await app.fetch(
         new Request(`http://localhost/storage/purchases/${purchaseId}`, {
