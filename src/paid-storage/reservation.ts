@@ -58,6 +58,11 @@ export function startStorageReservationLease(
     },
     async verify(actualSizeBytes: number) {
       sizeBytes = actualSizeBytes;
+      // A transient background-renewal failure must not doom the upload: the
+      // final check is authoritative, so always re-ask the database here. If
+      // the reservation row truly expired, the renewal UPDATE matches nothing
+      // and this still fails closed.
+      healthy = true;
       return await renew();
     },
   };
