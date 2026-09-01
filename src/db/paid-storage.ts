@@ -321,6 +321,42 @@ export async function listStoragePurchases(
 }
 
 /** Lists a bounded settlement batch independently of any browser request. */
+/** Counts a pubkey's unpaid purchases whose invoices can still be paid. */
+export async function countOpenStoragePurchases(
+  db: Client,
+  pubkey: string,
+  now: number,
+): Promise<number> {
+  const rs = await db.execute({
+    sql: `SELECT COUNT(*) FROM storage_purchases
+          WHERE pubkey = ? AND state = 'pending'
+            AND (invoice_expires IS NULL OR invoice_expires > ?)`,
+    args: [pubkey, now],
+  });
+  return Number(rs.rows[0]?.[0] ?? 0);
+}
+
+/**
+ * Deletes long-expired checkout rows that never saw money, so the purchase
+ * table cannot grow without bound. Anything paid or credited is kept forever,
+ * and rows are only removed when both the row and its invoice expired before
+ * the cutoff — the settlement sweep has retried them continuously until then.
+ */
+export async function purgeExpiredStoragePurchases(
+  db: Client,
+  cutoff: number,
+): Promise<number> {
+  const rs = await db.execute({
+    sql: `DELETE FROM storage_purchases
+          WHERE credited_at IS NULL AND paid_at IS NULL
+            AND state IN ('pending', 'expired')
+            AND created_at < ?
+            AND (invoice_expires IS NULL OR invoice_expires < ?)`,
+    args: [cutoff, cutoff],
+  });
+  return rs.rowsAffected ?? 0;
+}
+
 export async function listPendingStoragePurchases(
   db: Client,
   limit = 100,

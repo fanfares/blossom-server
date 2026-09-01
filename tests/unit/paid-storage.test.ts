@@ -83,6 +83,10 @@ class FakeTreasury implements TreasuryForwarder {
       paymentPreimage: "preimage",
     });
   }
+
+  isPayoutTerminallyFailed(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
 }
 
 Deno.test("paid storage credits purchases and reserves remaining quota atomically", async () => {
@@ -454,7 +458,7 @@ Deno.test("paid storage durably forwards settled revenue to the configured walle
         priceSats: 20,
         treasury: {
           enabled: true,
-          lightningAddress: "iefan@walletofsatoshi.com",
+          lightningAddress: "treasury@example.com",
         },
       },
     });
@@ -481,7 +485,7 @@ Deno.test("paid storage durably forwards settled revenue to the configured walle
       });
       state = String(result.rows[0]?.[0] ?? "");
       if (state === "paid") {
-        assertEquals(result.rows[0]?.[1], "iefan@walletofsatoshi.com");
+        assertEquals(result.rows[0]?.[1], "treasury@example.com");
         assertEquals(result.rows[0]?.[2], 19);
       }
     }
@@ -568,4 +572,176 @@ Deno.test("Cashu providers retry wallet initialization after a transient mint fa
     Error,
     "timed out",
   );
+});
+
+Deno.test("treasury discards a terminally failed melt and pays out with a fresh invoice", async () => {
+  const tmpDir = await Deno.makeTempDir({ prefix: "blossom_treasury_wedge_" });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  try {
+    class WedgedTreasury extends FakeTreasury {
+      failPayouts = true;
+      terminal = false;
+      prepareCalls = 0;
+
+      override preparePayout(): Promise<PreparedTreasuryPayout> {
+        this.prepareCalls++;
+        return Promise.resolve({
+          meltPreviewJson: `{"melt":${this.prepareCalls}}`,
+          forwardedAmountSats: 19,
+          feeReserveSats: 1,
+        });
+      }
+
+      override completePayout(): Promise<CompletedTreasuryPayout> {
+        if (this.failPayouts) {
+          return Promise.reject(new Error("Lightning route failed"));
+        }
+        return super.completePayout();
+      }
+
+      override isPayoutTerminallyFailed(): Promise<boolean> {
+        return Promise.resolve(this.terminal);
+      }
+    }
+
+    const config = ConfigSchema.parse({
+      mirror: { enabled: false },
+      paidStorage: {
+        enabled: true,
+        quotaBytesPerUnit: 1000,
+        priceSats: 20,
+        treasury: { enabled: true, lightningAddress: "treasury@example.com" },
+      },
+    });
+    const payments = new FakePayments();
+    const treasury = new WedgedTreasury();
+    const service = new PaidStorageService(
+      db,
+      config.paidStorage,
+      payments,
+      treasury,
+    );
+    const pubkey = "e".repeat(64);
+    const purchase = await service.getOrCreatePurchase(pubkey, 1);
+    payments.state = "paid";
+    await service.refreshPurchase(purchase.id, pubkey);
+
+    const readTransfer = async () => {
+      const result = await db.execute({
+        sql: `SELECT state, melt_preview_json FROM storage_treasury_transfers
+           WHERE purchase_id = ?`,
+        args: [purchase.id],
+      });
+      return {
+        state: String(result.rows[0]?.[0] ?? ""),
+        meltPreviewJson: result.rows[0]?.[1] === null
+          ? null
+          : String(result.rows[0]?.[1]),
+      };
+    };
+    const forceDue = () =>
+      db.execute({
+        sql: `UPDATE storage_treasury_transfers
+              SET next_attempt_at = 0, lease_until = 0
+              WHERE purchase_id = ?`,
+        args: [purchase.id],
+      });
+
+    // Wait for the fire-and-forget immediate attempt to fail and release.
+    let transfer = await readTransfer();
+    for (let i = 0; i < 40 && transfer.state !== "pending"; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      transfer = await readTransfer();
+    }
+    assertEquals(transfer.state, "pending");
+    // A recoverable failure must keep the persisted melt preview for replay.
+    assertEquals(transfer.meltPreviewJson, '{"melt":1}');
+    assertEquals(treasury.prepareCalls, 1);
+
+    // Mint now reports the melt quote UNPAID and expired: the preview must be
+    // discarded so the next sweep can prepare a fresh invoice.
+    treasury.terminal = true;
+    await forceDue();
+    await service.processDueTreasuryTransfers();
+    transfer = await readTransfer();
+    assertEquals(transfer.state, "pending");
+    assertEquals(transfer.meltPreviewJson, null);
+
+    // Recovery: a fresh invoice is prepared from the persisted proofs and paid.
+    treasury.failPayouts = false;
+    treasury.terminal = false;
+    await forceDue();
+    await service.processDueTreasuryTransfers();
+    transfer = await readTransfer();
+    assertEquals(transfer.state, "paid");
+    assertEquals(treasury.prepareCalls, 2);
+    assertEquals(treasury.completed, 1);
+  } finally {
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
+
+Deno.test("paid storage caps open invoices per pubkey and purges long-expired rows", async () => {
+  const tmpDir = await Deno.makeTempDir({ prefix: "blossom_purchase_cap_" });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  try {
+    const config = ConfigSchema.parse({
+      mirror: { enabled: false },
+      paidStorage: {
+        enabled: true,
+        quotaBytesPerUnit: 1000,
+        priceSats: 20,
+      },
+    });
+    const payments = new FakePayments();
+    const service = new PaidStorageService(db, config.paidStorage, payments);
+    const pubkey = "b".repeat(64);
+
+    for (let units = 1; units <= 10; units += 1) {
+      await service.getOrCreatePurchase(pubkey, units);
+    }
+    await assertRejects(
+      () => service.getOrCreatePurchase(pubkey, 11),
+      RangeError,
+      "Too many unpaid storage invoices",
+    );
+    // Re-requesting an identical open selection reuses it and is never capped.
+    const reused = await service.getOrCreatePurchase(pubkey, 10);
+    assertEquals(reused.units, 10);
+    assertEquals(payments.createCalls, 10);
+    // Another pubkey is unaffected by this buyer's open invoices.
+    await service.getOrCreatePurchase("c".repeat(64), 1);
+
+    // Purge removes only never-paid rows whose row AND invoice expired before
+    // the retention cutoff; paid history is kept forever.
+    const now = Math.floor(Date.now() / 1000);
+    const ancient = now - 200 * 24 * 60 * 60;
+    await db.execute({
+      sql: `UPDATE storage_purchases
+            SET state = 'expired', created_at = ?, invoice_expires = ?
+            WHERE pubkey = ? AND units <= 5`,
+      args: [ancient, ancient, pubkey],
+    });
+    await db.execute({
+      sql: `UPDATE storage_purchases
+            SET state = 'paid', paid_at = ?, credited_at = ?,
+                created_at = ?, invoice_expires = ?
+            WHERE pubkey = ? AND units = 6`,
+      args: [ancient, ancient, ancient, ancient, pubkey],
+    });
+    await service.processPendingPurchases();
+    const remaining = await db.execute({
+      sql:
+        "SELECT units FROM storage_purchases WHERE pubkey = ? ORDER BY units",
+      args: [pubkey],
+    });
+    assertEquals(
+      remaining.rows.map((row) => Number(row[0])),
+      [6, 7, 8, 9, 10],
+    );
+  } finally {
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
 });

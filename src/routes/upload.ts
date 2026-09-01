@@ -621,6 +621,9 @@ async function getQuotaPaymentResponse(
       "X-Storage-Purchase-Url": `${baseUrl}/storage/purchases/${purchase.id}`,
     });
   } catch (err) {
+    if (err instanceof RangeError) {
+      return errorResponse(ctx, 429, err.message);
+    }
     console.error("Failed to create storage payment challenge:", err);
     return errorResponse(ctx, 502, "Lightning invoice provider unavailable");
   }

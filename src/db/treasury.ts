@@ -138,6 +138,25 @@ export async function completeTreasuryTransfer(
   });
 }
 
+/**
+ * Discards a melt preview whose Lightning invoice can never be paid, so the next
+ * sweep prepares a fresh invoice from the still-persisted proofs. Callers must
+ * hold the processing lease and must have confirmed the quote is terminally
+ * UNPAID with the mint first — clearing a payable preview risks a double payout.
+ */
+export async function clearTreasuryMelt(
+  db: Client,
+  purchaseId: string,
+  now: number,
+): Promise<void> {
+  await db.execute({
+    sql: `UPDATE storage_treasury_transfers SET melt_preview_json = NULL,
+            forwarded_amount_sats = NULL, fee_reserve_sats = NULL, updated_at = ?
+          WHERE purchase_id = ? AND state = 'processing'`,
+    args: [now, purchaseId],
+  });
+}
+
 /** Releases a failed payout attempt with capped exponential backoff for a later server sweep. */
 export async function retryTreasuryTransfer(
   db: Client,

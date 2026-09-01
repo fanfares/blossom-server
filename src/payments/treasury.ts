@@ -31,6 +31,7 @@ export interface TreasuryForwarder {
     grossAmountSats: number,
   ): Promise<PreparedTreasuryPayout>;
   completePayout(meltPreviewJson: string): Promise<CompletedTreasuryPayout>;
+  isPayoutTerminallyFailed(meltPreviewJson: string): Promise<boolean>;
 }
 
 interface LightningAddressDetails {
@@ -151,6 +152,29 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
       changeProofsJson: JSON.stringify(result.change),
       paymentPreimage: result.quote.payment_preimage ?? null,
     };
+  }
+
+  /**
+   * Reports whether a persisted melt attempt can never complete, so its preview
+   * may be discarded and a fresh invoice prepared from the same proofs.
+   * Only an UNPAID quote past its own expiry is terminal; PENDING and PAID must
+   * keep replaying the persisted preview so a payout can never be duplicated.
+   */
+  async isPayoutTerminallyFailed(meltPreviewJson: string): Promise<boolean> {
+    const parsed = parsePreview(meltPreviewJson);
+    const quote = parsed.quote as { quote?: unknown } | undefined;
+    const quoteId = typeof quote?.quote === "string" ? quote.quote : null;
+    if (!quoteId) return false;
+    const wallet = await this.getWallet();
+    const status = await withPaymentTimeout(
+      wallet.checkMeltQuoteBolt11(quoteId),
+      this.operationTimeoutMs,
+      "Cashu treasury melt status check",
+    );
+    const state = String(status.state).toUpperCase();
+    const expiry = Number(status.expiry);
+    return state === "UNPAID" && Number.isFinite(expiry) &&
+      expiry <= Math.floor(Date.now() / 1000);
   }
 
   /** Loads the configured Cashu mint once for all quote claims and treasury melts. */

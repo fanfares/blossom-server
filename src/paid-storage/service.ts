@@ -2,6 +2,7 @@ import type { Client } from "@libsql/client";
 import { ulid } from "@std/ulid";
 import type { PaidStorageConfig } from "../config/schema.ts";
 import {
+  countOpenStoragePurchases,
   creditStorageAlignedPurchase,
   creditStorageExtensionPurchase,
   creditStoragePurchase,
@@ -18,6 +19,7 @@ import {
   listPendingStoragePurchases,
   listStorageAlignmentTargets,
   listStoragePurchases,
+  purgeExpiredStoragePurchases,
   type StorageAlignmentTargetRecord,
   type StorageGrantRecord,
   type StoragePurchaseRecord,
@@ -29,6 +31,7 @@ import {
 } from "../payments/cashu.ts";
 import {
   claimTreasuryTransfer,
+  clearTreasuryMelt,
   completeTreasuryTransfer,
   listDueTreasuryTransferIds,
   retryTreasuryTransfer,
@@ -62,6 +65,24 @@ export interface StorageAlignmentPreview {
   existingStorageBytesExtended: number;
   grantChanges: StorageAlignmentTargetRecord[];
 }
+
+/**
+ * Payout attempts at or beyond this count log an operator alert on every sweep.
+ * With the 1-hour backoff cap this fires within roughly the first day of a
+ * persistently failing payout. Retries never stop: the settled proofs stay in
+ * the outbox row and remain recoverable.
+ */
+const TREASURY_ATTEMPT_ALERT_THRESHOLD = 24;
+
+/**
+ * Maximum distinct unpaid invoices one pubkey may hold open at once. Retrying
+ * an identical selection reuses its pending purchase and is never capped; this
+ * only stops varied selections from minting unbounded external mint quotes.
+ */
+const MAX_OPEN_STORAGE_PURCHASES = 10;
+
+/** Unpaid checkout rows are purged this long after both row and invoice expired. */
+const STORAGE_PURCHASE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 
 /** Coordinates Cashu Lightning quotes with durable annual quota grants. */
 export class PaidStorageService {
@@ -157,6 +178,7 @@ export class PaidStorageService {
       }
     }
 
+    await this.assertOpenPurchaseCapacity(pubkey, now);
     const quote = await this.payments.createQuote(
       amountSats,
       "Fanfares Blossom: " + storageUnits + " storage unit" +
@@ -322,6 +344,7 @@ export class PaidStorageService {
       now,
     );
     if (existing) return existing;
+    await this.assertOpenPurchaseCapacity(pubkey, now);
     const quote = await this.payments.createQuote(
       amountSats,
       "Fanfares Blossom: extend " + storageUnits + " storage unit" +
@@ -440,11 +463,34 @@ export class PaidStorageService {
     return purchase;
   }
 
+  /** Refuses a new external mint quote when the buyer already has the maximum open invoices. */
+  private async assertOpenPurchaseCapacity(
+    pubkey: string,
+    now: number,
+  ): Promise<void> {
+    const open = await countOpenStoragePurchases(this.db, pubkey, now);
+    if (open >= MAX_OPEN_STORAGE_PURCHASES) {
+      throw new RangeError(
+        "Too many unpaid storage invoices are open; pay or expire one before creating another",
+      );
+    }
+  }
+
   /** Reconciles a bounded pending-purchase batch without relying on a browser retaining an ID. */
   async processPendingPurchases(
     limit = 100,
     pubkey?: string,
   ): Promise<void> {
+    if (!pubkey) {
+      try {
+        await purgeExpiredStoragePurchases(
+          this.db,
+          this.now() - STORAGE_PURCHASE_RETENTION_SECONDS,
+        );
+      } catch (error) {
+        console.error("[paid-storage] Expired-purchase purge failed:", error);
+      }
+    }
     const purchases = await listPendingStoragePurchases(
       this.db,
       limit,
@@ -515,6 +561,13 @@ export class PaidStorageService {
       600,
     );
     if (!claimed) return;
+    if (claimed.attemptCount >= TREASURY_ATTEMPT_ALERT_THRESHOLD) {
+      console.error(
+        `[treasury] ALERT: payout for ${purchaseId} is on attempt ` +
+          `${claimed.attemptCount}; operator attention needed. Settled proofs ` +
+          `remain recoverable in storage_treasury_transfers.`,
+      );
+    }
     try {
       let mintPreviewJson = claimed.mintPreviewJson;
       if (!mintPreviewJson) {
@@ -553,8 +606,15 @@ export class PaidStorageService {
         );
       }
 
-      const completed = await this.treasury.completePayout(meltPreviewJson);
+      let completed;
+      try {
+        completed = await this.treasury.completePayout(meltPreviewJson);
+      } catch (error) {
+        await this.discardTerminallyFailedMelt(purchaseId, meltPreviewJson);
+        throw error;
+      }
       if (!completed.paid) {
+        await this.discardTerminallyFailedMelt(purchaseId, meltPreviewJson);
         throw new Error(
           "Cashu mint reports the treasury payment is still pending",
         );
@@ -580,6 +640,30 @@ export class PaidStorageService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Clears a melt preview whose Lightning invoice the mint reports as expired
+   * and unpaid, so the next sweep prepares a fresh invoice from the persisted
+   * proofs instead of replaying a dead quote forever. Any uncertainty (PENDING,
+   * PAID, or an unreachable mint) keeps the preview, which is always safe.
+   */
+  private async discardTerminallyFailedMelt(
+    purchaseId: string,
+    meltPreviewJson: string,
+  ): Promise<void> {
+    let terminal = false;
+    try {
+      terminal = await this.treasury.isPayoutTerminallyFailed(meltPreviewJson);
+    } catch {
+      return;
+    }
+    if (!terminal) return;
+    await clearTreasuryMelt(this.db, purchaseId, this.now());
+    console.warn(
+      `[treasury] Discarded expired payout attempt for ${purchaseId}; ` +
+        "a fresh invoice will be prepared on the next sweep",
+    );
   }
 
   /** Reads the original Cashu mint quote ID needed to claim a settled purchase into proofs. */
