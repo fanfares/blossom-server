@@ -36,7 +36,7 @@ paidStorage:
     mintUrl: https://mint.minibits.cash/Bitcoin
   treasury:
     enabled: true
-    lightningAddress: iefan@walletofsatoshi.com
+    lightningAddress: operator@example.com
     retryIntervalSeconds: 60
 
 # Mirror and media writes bypass the paid upload quota and must remain disabled

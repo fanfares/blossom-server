@@ -61,10 +61,12 @@ paidStorage:
   priceSats: 20
   maxDurationYears: 5
   cashu:
-    mintUrl: https://mint.macadamia.cash
+    mintUrl: https://mint.minibits.cash/Bitcoin
   treasury:
+    # Enabling requires an explicit lightningAddress (config validation fails
+    # closed without one). The revenue destination is an operator decision;
+    # never pre-fill it here.
     enabled: false
-    lightningAddress: iefan@walletofsatoshi.com
     retryIntervalSeconds: 60
 
 media:

@@ -532,7 +532,7 @@ const PaidStorageSchema = z.object({
       mintUrl: z
         .string()
         .url()
-        .default("https://mint.macadamia.cash")
+        .default("https://mint.minibits.cash/Bitcoin")
         .describe(
           "Cashu mint used to create and verify Lightning mint quotes for storage purchases.",
         ),
@@ -542,7 +542,7 @@ const PaidStorageSchema = z.object({
       v ??
         z.object({
           mintUrl: z.string().url().default(
-            "https://mint.macadamia.cash",
+            "https://mint.minibits.cash/Bitcoin",
           ),
         }).parse({})
     ),

@@ -244,7 +244,7 @@ paidStorage:
   # forward it (less Lightning routing fees) to the operator wallet.
   treasury:
     enabled: true
-    lightningAddress: iefan@walletofsatoshi.com
+    lightningAddress: operator@example.com
     retryIntervalSeconds: 60
 
 # ---------------------------------------------------------------------------
