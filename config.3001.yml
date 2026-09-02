@@ -84,11 +84,11 @@ report:
 
 dashboard:
   enabled: true
-  # Local-only demo credential. Never copy this password into a deployment.
-  password: "fanfares-demo-admin"
+  # Supply this at startup, for example BLOSSOM_ADMIN_PASSWORD=... deno task dev:local.
+  password: "${BLOSSOM_ADMIN_PASSWORD}"
   sessionSecret: "local-only-demo-session-secret-change-me"
   adminPubkeys:
-    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+    - 29e1097c0905ffef6e970a20b1379fd12709f26b9cf93c027930a68cf2707351
   lookupRelays:
     - wss://fanfares.nostr1.com
     - wss://relay.primal.net
