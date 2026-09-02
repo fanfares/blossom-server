@@ -43,10 +43,24 @@ function cookieOptions(
   };
 }
 
-/** Rejects cross-origin state changes even if a browser were to attach cookies. */
+/** Accepts explicit or browser-verified same-origin mutations while rejecting cross-site requests. */
 function hasValidOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
-  return origin === new URL(request.url).origin;
+  const requestOrigin = new URL(request.url).origin;
+  if (origin) return origin === requestOrigin;
+
+  // Some browsers omit Origin on an ordinary same-origin HTML form POST. The
+  // Fetch Metadata header is browser-controlled and cannot be forged by page
+  // JavaScript, so it safely covers that form-navigation case.
+  if (request.headers.get("sec-fetch-site") === "same-origin") return true;
+
+  const referer = request.headers.get("referer");
+  if (!referer) return false;
+  try {
+    return new URL(referer).origin === requestOrigin;
+  } catch {
+    return false;
+  }
 }
 
 /** Consumes a challenge once and clears expired replay markers opportunistically. */
@@ -66,7 +80,7 @@ export function registerAdminAuthentication(app: Hono, config: Config): void {
   app.use("*", async (c, next) => {
     await next();
     c.header("cache-control", "no-store");
-    c.header("referrer-policy", "no-referrer");
+    c.header("referrer-policy", "same-origin");
     c.header("x-content-type-options", "nosniff");
     c.header("x-frame-options", "DENY");
     c.header(
