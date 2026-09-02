@@ -106,13 +106,27 @@ Deno.test({
       );
       assertEquals(replayResponse.status, 403);
 
+      const crossSitePasswordResponse = await app.fetch(
+        new Request("http://localhost/admin/password", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            cookie: factorCookie,
+            origin: "https://attacker.example",
+            "sec-fetch-site": "cross-site",
+          },
+          body: new URLSearchParams({ password }),
+        }),
+      );
+      assertEquals(crossSitePasswordResponse.status, 403);
+
       const passwordResponse = await app.fetch(
         new Request("http://localhost/admin/password", {
           method: "POST",
           headers: {
             "content-type": "application/x-www-form-urlencoded",
             cookie: factorCookie,
-            origin: "http://localhost",
+            "sec-fetch-site": "same-origin",
           },
           body: new URLSearchParams({ password }),
         }),
