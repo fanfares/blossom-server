@@ -90,7 +90,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
       />
 
       {notice && (
-        <div class="mb-4 rounded border border-green-800 bg-green-950 px-3 py-2 text-sm text-green-300">
+        <div class="mb-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
           {notice}
         </div>
       )}
@@ -98,22 +98,22 @@ export const BlobsPage: FC<BlobsPageProps> = async (
       <form
         method="post"
         action="/admin/events/inspect"
-        class="mb-5 flex flex-wrap gap-2 rounded-lg border border-gray-800 bg-gray-900 p-4"
+        class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm"
       >
         <input
           type="text"
           name="event"
           required
           placeholder="Event hex, note, nevent, or naddr…"
-          class="min-w-72 flex-1 rounded border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-200 focus:border-purple-500 focus:outline-none"
+          class="min-w-72 flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35 focus:ring-1 focus:ring-cyan-300/20"
         />
         <button
           type="submit"
-          class="rounded bg-purple-700 px-4 py-2 text-sm font-medium text-white hover:bg-purple-600"
+          class="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-5 py-3 text-sm font-semibold text-cyan-50 transition-colors hover:bg-cyan-300/20"
         >
           Inspect event
         </button>
-        <p class="basis-full text-xs text-gray-500">
+        <p class="basis-full text-xs leading-5 text-gray-500">
           Fetches the signed event from configured relays and links its Blossom
           files for moderation.
         </p>
@@ -123,18 +123,18 @@ export const BlobsPage: FC<BlobsPageProps> = async (
       <form
         method="get"
         action="/admin/blobs"
-        class="mb-4 flex flex-wrap gap-2"
+        class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4"
       >
         <input
           type="text"
           name="q"
           value={q}
           placeholder="Search hash, MIME, pubkey, or event ID…"
-          class="flex-1 max-w-md bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500"
+          class="max-w-md flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
         <select
           name="visibility"
-          class="rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200"
+          class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-300/35"
         >
           <option value="" selected={!visibility}>All visibility</option>
           <option value="encrypted" selected={visibility === "encrypted"}>
@@ -149,7 +149,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         </select>
         <select
           name="sort"
-          class="rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200"
+          class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-300/35"
         >
           <option value="uploaded" selected={sort === "uploaded"}>
             Upload date
@@ -160,7 +160,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         </select>
         <select
           name="direction"
-          class="rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200"
+          class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-300/35"
         >
           <option value="DESC" selected={direction === "DESC"}>
             Descending
@@ -169,14 +169,14 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         </select>
         <button
           type="submit"
-          class="px-4 py-2 rounded bg-purple-700 hover:bg-purple-600 text-white text-sm font-medium transition-colors"
+          class="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-5 py-2 text-sm font-semibold text-cyan-50 transition-colors hover:bg-cyan-300/20"
         >
           Search
         </button>
         {(q || visibility || sort !== "uploaded" || direction !== "DESC") && (
           <a
             href="/admin/blobs"
-            class="px-4 py-2 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+            class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-gray-400 transition-colors hover:border-white/20 hover:text-white"
           >
             Clear
           </a>
@@ -215,12 +215,12 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                   return (
                     <tr
                       key={blob.sha256}
-                      class="hover:bg-gray-900 transition-colors"
+                      class="transition-colors hover:bg-white/[0.025]"
                     >
                       <Td mono>
                         <a
                           href={`/admin/blobs/${blob.sha256}`}
-                          class="text-purple-400 hover:text-purple-300 hover:underline"
+                          class="text-cyan-200/80 transition-colors hover:text-cyan-100"
                           title={blob.sha256}
                         >
                           {truncateHash(blob.sha256)}
@@ -252,7 +252,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                                   <a
                                     href={`/admin/blobs?q=${event.id}`}
                                     title={event.id}
-                                    class="font-mono text-xs text-purple-400 hover:underline"
+                                    class="font-mono text-xs text-cyan-200/75 hover:text-cyan-100"
                                   >
                                     {truncateHash(event.id)}
                                   </a>

@@ -44,7 +44,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
         <PageHeader title="Blob not found" />
         <p class="text-gray-400 text-sm">
           No blob with hash{" "}
-          <code class="font-mono text-purple-400">{sha256}</code> exists.
+          <code class="font-mono text-cyan-200/75">{sha256}</code> exists.
         </p>
         <a
           href="/admin/blobs"
@@ -88,9 +88,9 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
 
       <PageHeader title={`Blob ${truncateHash(sha256)}`} />
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Metadata card */}
-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4">
+        <div class="space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">
             Details
           </h2>
@@ -130,7 +130,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                       <div key={pk}>
                         <a
                           href={`/admin/users?q=${pk}`}
-                          class="font-mono text-xs text-purple-400 hover:text-purple-300 hover:underline break-all"
+                          class="break-all font-mono text-xs text-cyan-200/75 transition-colors hover:text-cyan-100"
                         >
                           {pk}
                         </a>
@@ -156,7 +156,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                     >
                       <a
                         href={`/admin/blobs?q=${event.id}`}
-                        class="font-mono text-xs text-purple-400 hover:underline break-all"
+                        class="break-all font-mono text-xs text-cyan-200/75 hover:text-cyan-100"
                       >
                         {event.id}
                       </a>
@@ -196,7 +196,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
         </div>
 
         {/* Preview card */}
-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
             Preview
           </h2>
@@ -224,7 +224,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                 href={blobUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="text-purple-400 hover:text-purple-300 text-sm hover:underline"
+                class="text-sm text-cyan-200/75 transition-colors hover:text-cyan-100"
               >
                 Open file ↗
               </a>

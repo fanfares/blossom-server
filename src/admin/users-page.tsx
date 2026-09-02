@@ -45,24 +45,28 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
       />
 
       {/* Search form */}
-      <form method="get" action="/admin/users" class="mb-4 flex gap-2">
+      <form
+        method="get"
+        action="/admin/users"
+        class="mb-5 flex gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4"
+      >
         <input
           type="text"
           name="q"
           value={q}
           placeholder="Search by pubkey…"
-          class="flex-1 max-w-md bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500"
+          class="max-w-md flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
         <button
           type="submit"
-          class="px-4 py-2 rounded bg-purple-700 hover:bg-purple-600 text-white text-sm font-medium transition-colors"
+          class="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-5 py-2 text-sm font-semibold text-cyan-50 transition-colors hover:bg-cyan-300/20"
         >
           Search
         </button>
         {q && (
           <a
             href="/admin/users"
-            class="px-4 py-2 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+            class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-gray-400 transition-colors hover:border-white/20 hover:text-white"
           >
             Clear
           </a>
@@ -92,13 +96,13 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
                   return (
                     <tr
                       key={user.pubkey}
-                      class="hover:bg-gray-900 transition-colors"
+                      class="transition-colors hover:bg-white/[0.025]"
                     >
                       <Td mono>
                         <a
                           href={`/admin/users/${user.pubkey}`}
                           title={user.pubkey}
-                          class="text-purple-400 hover:text-purple-300 hover:underline"
+                          class="text-cyan-200/80 transition-colors hover:text-cyan-100"
                         >
                           {truncateHash(user.pubkey)}
                         </a>
@@ -110,7 +114,7 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
                       <Td>
                         <a
                           href={`/admin/users/${user.pubkey}`}
-                          class="text-xs text-purple-400 hover:text-purple-300 hover:underline"
+                          class="text-xs text-cyan-200/75 transition-colors hover:text-cyan-100"
                         >
                           View →
                         </a>
