@@ -1,0 +1,83 @@
+{
+  // Standalone config for the STAGING worker (fanfares-blossom-server-staging),
+  // fully isolated from the worker behind blossom.fanfares.live: its own
+  // container image (staging config baked in: paid storage ON at 1 sat), its
+  // own R2 bucket, D1 database, and Turso database.
+  //
+  // One-time setup, run from this directory:
+  //   npx wrangler r2 bucket create ff-blossom-staging
+  //   npx wrangler d1 create blossom-metadata-staging
+  //     -> paste the printed database_id below
+  //   Fill in BLOSSOM_PUBLIC_DOMAIN below with the worker's bare hostname
+  //   (fanfares-blossom-server-staging.<your-workers-subdomain>.workers.dev —
+  //   the subdomain is the same one the existing worker's workers.dev URL uses).
+  //   npx wrangler secret put TURSO_DATABASE_URL --config wrangler.staging.jsonc
+  //   npx wrangler secret put TURSO_AUTH_TOKEN --config wrangler.staging.jsonc
+  //   npx wrangler secret put R2_ACCESS_KEY_ID --config wrangler.staging.jsonc
+  //   npx wrangler secret put R2_SECRET_ACCESS_KEY --config wrangler.staging.jsonc
+  //     (same R2 API key pair the main worker uses, unless it is scoped to a
+  //      single bucket — then mint a key that can reach ff-blossom-staging)
+  //
+  // Deploy / redeploy:
+  //   npx wrangler deploy --config wrangler.staging.jsonc
+  //
+  // Verify:
+  //   GET https://<BLOSSOM_PUBLIC_DOMAIN>/            -> 200, title ends "(staging)"
+  //   GET https://<BLOSSOM_PUBLIC_DOMAIN>/storage/account -> 401 (never 404)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fanfares-blossom-server-staging",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-24",
+  "containers": [
+    {
+      "class_name": "BlossomAppContainer",
+      "image": "./Dockerfile.cloudflare.staging",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BLOSSOM_APP",
+        "class_name": "BlossomAppContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "BlossomAppContainer"
+      ]
+    }
+  ],
+  "vars": {
+    "CF_ACCOUNT_ID": "4e84c1691dd1a8230152bfc2551cec85",
+    "R2_BUCKET": "ff-blossom-staging"
+    // BLOSSOM_PUBLIC_DOMAIN is deliberately NOT pre-filled: the staging config
+    // interpolates it, so the container fails closed at startup ("Required
+    // environment variable ... is not set") until it is added here with the
+    // real staging hostname. Add it as:
+    //   "BLOSSOM_PUBLIC_DOMAIN": "fanfares-blossom-server-staging.<subdomain>.workers.dev"
+    // BLOSSOM_ADMIN_PASSWORD stays a secret, never a var (an empty var
+    // overwrites the secret on every deploy — vars and secrets share a
+    // namespace).
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "blossom_metadata",
+      "database_name": "blossom-metadata-staging",
+      // Paste the id printed by: npx wrangler d1 create blossom-metadata-staging
+      "database_id": ""
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLOSSOM_R2",
+      "bucket_name": "ff-blossom-staging"
+    }
+  ]
+}
