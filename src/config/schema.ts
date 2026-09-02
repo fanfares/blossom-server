@@ -604,16 +604,28 @@ const DashboardSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Enable the admin dashboard at /admin and the admin API at /api. Protected by HTTP Basic Auth.",
+      "Enable the admin dashboard at /admin. Access requires an allowlisted Nostr key followed by the dashboard password.",
+    ),
+  adminPubkeys: z
+    .array(z.string().regex(/^[a-f0-9]{64}$/i))
+    .default([])
+    .describe(
+      "Hex Nostr public keys permitted to complete the first admin authentication factor.",
     ),
   username: z.string().default("admin").describe(
-    "HTTP Basic Auth username for the admin dashboard.",
+    "Deprecated Basic Auth username retained for configuration compatibility.",
   ),
   password: z
     .string()
     .default("")
     .describe(
-      "HTTP Basic Auth password. If blank, a random password is generated on startup and logged to stdout.",
+      "Second-factor admin password. Must be set when the dashboard is enabled.",
+    ),
+  sessionSecret: z
+    .string()
+    .default("")
+    .describe(
+      "High-entropy secret used only to sign admin challenges and sessions. Keep separate from the password.",
     ),
   lookupRelays: z
     .array(z.string().url())
@@ -741,6 +753,34 @@ export const ConfigSchema = z
       .describe("Blob report endpoint settings (BUD-09)."),
   })
   .superRefine((config, ctx) => {
+    if (config.dashboard.enabled && config.dashboard.password.length < 12) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dashboard", "password"],
+        message:
+          "Dashboard password must contain at least 12 characters when the dashboard is enabled.",
+      });
+    }
+    if (
+      config.dashboard.enabled && config.dashboard.sessionSecret.length < 32
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dashboard", "sessionSecret"],
+        message:
+          "Dashboard session secret must contain at least 32 characters when the dashboard is enabled.",
+      });
+    }
+    if (
+      config.dashboard.enabled && config.dashboard.adminPubkeys.length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dashboard", "adminPubkeys"],
+        message:
+          "At least one admin Nostr pubkey is required when the dashboard is enabled.",
+      });
+    }
     if (config.paidStorage.enabled && config.mirror.enabled) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

@@ -2,6 +2,7 @@ import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
+import { nip19 } from "nostr-tools";
 import {
   AdminLayout,
   Badge,
@@ -61,6 +62,9 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
   });
   const owners = blobsWithOwners[0]?.sha256 === sha256
     ? blobsWithOwners[0].owners
+    : [];
+  const events = blobsWithOwners[0]?.sha256 === sha256
+    ? blobsWithOwners[0].events
     : [];
 
   const blobUrl = getBlobUrl(blob.sha256, blob.type, config, host);
@@ -130,9 +134,46 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                         >
                           {pk}
                         </a>
+                        <div class="font-mono text-xs text-gray-600 break-all">
+                          {nip19.npubEncode(pk)}
+                        </div>
                       </div>
                     ))
                   )}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs text-gray-500 mb-0.5">
+                Related events ({events.length})
+              </dt>
+              <dd class="space-y-2 mt-1">
+                {events.length === 0
+                  ? <span class="text-gray-600 text-sm">Not indexed</span>
+                  : events.map((event) => (
+                    <div
+                      key={event.id}
+                      class="rounded border border-gray-800 p-2"
+                    >
+                      <a
+                        href={`/admin/blobs?q=${event.id}`}
+                        class="font-mono text-xs text-purple-400 hover:underline break-all"
+                      >
+                        {event.id}
+                      </a>
+                      <div class="mt-1 flex gap-2 text-xs text-gray-500">
+                        <span>kind {event.kind}</span>
+                        <Badge color={event.encrypted ? "yellow" : "green"}>
+                          {event.encrypted ? "encrypted" : "public"}
+                        </Badge>
+                      </div>
+                      <a
+                        href={`/admin/users?q=${event.pubkey}`}
+                        class="mt-1 block font-mono text-xs text-gray-500 hover:text-gray-300 break-all"
+                      >
+                        author {event.pubkey}
+                      </a>
+                    </div>
+                  ))}
               </dd>
             </div>
           </dl>

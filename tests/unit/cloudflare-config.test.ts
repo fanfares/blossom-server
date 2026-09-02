@@ -20,6 +20,8 @@ const CLOUDFLARE_TEST_ENV = {
   R2_BUCKET: "test-r2-bucket",
   R2_ACCESS_KEY_ID: "test-r2-access-key",
   R2_SECRET_ACCESS_KEY: "test-r2-secret-key",
+  BLOSSOM_ADMIN_PASSWORD: "test-admin-password",
+  BLOSSOM_ADMIN_SESSION_SECRET: "test-admin-session-secret-32-characters",
 };
 
 /** Loads the committed Cloudflare config with non-secret test values and restores the process environment afterward. */
@@ -54,6 +56,8 @@ Deno.test("Cloudflare deployment config keeps destructive and storage routes aut
   );
   assertEquals(config.paidStorage.enabled, false);
   assertEquals(config.paidStorage.treasury.enabled, false);
+  assertEquals(config.dashboard.enabled, true);
+  assertEquals(config.dashboard.adminPubkeys.length, 1);
 });
 
 Deno.test("Cloudflare deployment config restricts writes to the pubkey allowlist", async () => {

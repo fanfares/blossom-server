@@ -134,39 +134,39 @@ directory). Environment variables can be substituted anywhere in the file using
 
 ### Key Options
 
-| Key                                     | Default                       | Description                                                                                                                                                                                                                                  |
-| --------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `port`                                  | `3000`                        | TCP port to listen on                                                                                                                                                                                                                        |
-| `host`                                  | `0.0.0.0`                     | Bind interface (`127.0.0.1` for loopback-only behind a proxy)                                                                                                                                                                                |
-| `publicDomain`                          | `""`                          | Canonical bare hostname used in blob URLs and BUD-11 server-tag validation. When empty, descriptor URLs use the request URL but server-scoped auth tokens are rejected; the Host header is never trusted for auth validation (no `https://`) |
-| `database.path`                         | `data/sqlite.db`              | Local SQLite database path                                                                                                                                                                                                                   |
-| `database.url`                          | —                             | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                                                                                                                                             |
-| `storage.backend`                       | `local`                       | Storage backend: `local`, `s3`, or `r2`                                                                                                                                                                                                      |
-| `storage.local.dir`                     | `./data/blobs`                | Directory for blob files (local backend)                                                                                                                                                                                                     |
-| `storage.removeWhenNoOwners`            | `false`                       | Delete blobs with no owners on each prune cycle, regardless of expiry rules                                                                                                                                                                  |
-| `upload.enabled`                        | `true`                        | Enable `PUT /upload`                                                                                                                                                                                                                         |
-| `upload.requireAuth`                    | `true`                        | Require Nostr auth for uploads                                                                                                                                                                                                               |
-| `upload.maxSize`                        | `2147483648`                  | Maximum upload size in bytes (2 GB)                                                                                                                                                                                                          |
-| `upload.workers`                        | `0`                           | Upload worker threads (0 = one per CPU core)                                                                                                                                                                                                 |
-| `upload.requirePubkeyInRule`            | `false`                       | Reject uploads unless the uploader's pubkey appears in a storage rule                                                                                                                                                                        |
-| `mirror.enabled`                        | `true`                        | Enable `PUT /mirror` (BUD-04)                                                                                                                                                                                                                |
-| `mirror.connectTimeout`                 | `30000`                       | Timeout (ms) to connect to the origin; 0 = no limit                                                                                                                                                                                          |
-| `mirror.bodyTimeout`                    | `0`                           | Timeout (ms) for full body transfer from origin; 0 = no limit                                                                                                                                                                                |
-| `delete.requireAuth`                    | `true`                        | Require Nostr auth for deletes                                                                                                                                                                                                               |
-| `list.enabled`                          | `false`                       | Enable `GET /list/:pubkey` (BUD-02); disabled by default                                                                                                                                                                                     |
-| `list.requireAuth`                      | `false`                       | Require Nostr auth for list requests                                                                                                                                                                                                         |
-| `list.allowListOthers`                  | `true`                        | Allow listing blobs belonging to a different pubkey                                                                                                                                                                                          |
-| `paidStorage.enabled`                   | `false`                       | Require active paid quota for `PUT`/`HEAD /upload`                                                                                                                                                                                           |
-| `paidStorage.priceSats`                 | `20`                          | Temporary Lightning launch price per 1 GiB/year unit                                                                                                                                                                                         |
-| `paidStorage.maxDurationYears`          | `5`                           | Maximum years selectable for a capacity purchase or extension                                                                                                                                                                                |
+| Key                                     | Default                              | Description                                                                                                                                                                                                                                  |
+| --------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `port`                                  | `3000`                               | TCP port to listen on                                                                                                                                                                                                                        |
+| `host`                                  | `0.0.0.0`                            | Bind interface (`127.0.0.1` for loopback-only behind a proxy)                                                                                                                                                                                |
+| `publicDomain`                          | `""`                                 | Canonical bare hostname used in blob URLs and BUD-11 server-tag validation. When empty, descriptor URLs use the request URL but server-scoped auth tokens are rejected; the Host header is never trusted for auth validation (no `https://`) |
+| `database.path`                         | `data/sqlite.db`                     | Local SQLite database path                                                                                                                                                                                                                   |
+| `database.url`                          | —                                    | Remote libSQL/Turso URL (`libsql://your-db.turso.io` or `http://localhost:8080`)                                                                                                                                                             |
+| `storage.backend`                       | `local`                              | Storage backend: `local`, `s3`, or `r2`                                                                                                                                                                                                      |
+| `storage.local.dir`                     | `./data/blobs`                       | Directory for blob files (local backend)                                                                                                                                                                                                     |
+| `storage.removeWhenNoOwners`            | `false`                              | Delete blobs with no owners on each prune cycle, regardless of expiry rules                                                                                                                                                                  |
+| `upload.enabled`                        | `true`                               | Enable `PUT /upload`                                                                                                                                                                                                                         |
+| `upload.requireAuth`                    | `true`                               | Require Nostr auth for uploads                                                                                                                                                                                                               |
+| `upload.maxSize`                        | `2147483648`                         | Maximum upload size in bytes (2 GB)                                                                                                                                                                                                          |
+| `upload.workers`                        | `0`                                  | Upload worker threads (0 = one per CPU core)                                                                                                                                                                                                 |
+| `upload.requirePubkeyInRule`            | `false`                              | Reject uploads unless the uploader's pubkey appears in a storage rule                                                                                                                                                                        |
+| `mirror.enabled`                        | `true`                               | Enable `PUT /mirror` (BUD-04)                                                                                                                                                                                                                |
+| `mirror.connectTimeout`                 | `30000`                              | Timeout (ms) to connect to the origin; 0 = no limit                                                                                                                                                                                          |
+| `mirror.bodyTimeout`                    | `0`                                  | Timeout (ms) for full body transfer from origin; 0 = no limit                                                                                                                                                                                |
+| `delete.requireAuth`                    | `true`                               | Require Nostr auth for deletes                                                                                                                                                                                                               |
+| `list.enabled`                          | `false`                              | Enable `GET /list/:pubkey` (BUD-02); disabled by default                                                                                                                                                                                     |
+| `list.requireAuth`                      | `false`                              | Require Nostr auth for list requests                                                                                                                                                                                                         |
+| `list.allowListOthers`                  | `true`                               | Allow listing blobs belonging to a different pubkey                                                                                                                                                                                          |
+| `paidStorage.enabled`                   | `false`                              | Require active paid quota for `PUT`/`HEAD /upload`                                                                                                                                                                                           |
+| `paidStorage.priceSats`                 | `20`                                 | Temporary Lightning launch price per 1 GiB/year unit                                                                                                                                                                                         |
+| `paidStorage.maxDurationYears`          | `5`                                  | Maximum years selectable for a capacity purchase or extension                                                                                                                                                                                |
 | `paidStorage.cashu.mintUrl`             | `https://mint.minibits.cash/Bitcoin` | Cashu mint used as the Lightning invoice and settlement-status intermediary                                                                                                                                                                  |
-| `paidStorage.treasury.enabled`          | `false`                       | Claim settled Cashu quotes and forward their value, less Lightning routing fees, to the operator wallet                                                                                                                                      |
-| `paidStorage.treasury.lightningAddress` | —                             | Operator Lightning Address that receives paid-storage revenue; required when treasury forwarding is enabled                                                                                                                                  |
-| `media.enabled`                         | `false`                       | Enable `PUT /media` (BUD-05); requires ffmpeg for video                                                                                                                                                                                      |
-| `report.enabled`                        | `true`                        | Enable `PUT /report` (BUD-09)                                                                                                                                                                                                                |
-| `landing.enabled`                       | `true`                        | Enable the landing page at `/`                                                                                                                                                                                                               |
-| `landing.title`                         | `Blossom Server`              | Page title shown in `<title>` and `<h1>`                                                                                                                                                                                                     |
-| `dashboard.enabled`                     | `false`                       | Enable the admin dashboard at `/admin`                                                                                                                                                                                                       |
+| `paidStorage.treasury.enabled`          | `false`                              | Claim settled Cashu quotes and forward their value, less Lightning routing fees, to the operator wallet                                                                                                                                      |
+| `paidStorage.treasury.lightningAddress` | —                                    | Operator Lightning Address that receives paid-storage revenue; required when treasury forwarding is enabled                                                                                                                                  |
+| `media.enabled`                         | `false`                              | Enable `PUT /media` (BUD-05); requires ffmpeg for video                                                                                                                                                                                      |
+| `report.enabled`                        | `true`                               | Enable `PUT /report` (BUD-09)                                                                                                                                                                                                                |
+| `landing.enabled`                       | `true`                               | Enable the landing page at `/`                                                                                                                                                                                                               |
+| `landing.title`                         | `Blossom Server`                     | Page title shown in `<title>` and `<h1>`                                                                                                                                                                                                     |
+| `dashboard.enabled`                     | `false`                              | Enable the admin dashboard at `/admin`                                                                                                                                                                                                       |
 
 For all options with inline documentation, see
 [`config.example.yml`](config.example.yml).
@@ -300,8 +300,9 @@ container runtime:
 - `GET /__meta/users`
 - `GET /__meta/users/count`
 
-Dashboard reads are routed through that Worker metadata API, while blob bytes
-(`PUT /upload`, `GET /:sha256`, etc.) still use the container + R2 path.
+Public landing-page reads are routed through that Worker metadata API. The
+authenticated admin dashboard uses canonical libSQL/Turso metadata, while blob
+bytes (`PUT /upload`, `GET /:sha256`, etc.) use the container + R2 path.
 
 ### Recover Dashboard Metadata From Existing R2 Objects
 
@@ -318,18 +319,18 @@ Optional query parameters:
 - `limit` max objects per run (default `100000`, page size is internal)
 - `dryRun=true` to scan without writing
 
-`BLOSSOM_ADMIN_PASSWORD` is **required**. The endpoint fails closed with 500
+`BLOSSOM_META_ADMIN_TOKEN` is **required**. The endpoint fails closed with 500
 when it is unset, so set it as a secret (never as a `vars` entry, which would be
 overwritten on every deploy):
 
 ```sh
-wrangler secret put BLOSSOM_ADMIN_PASSWORD
+wrangler secret put BLOSSOM_META_ADMIN_TOKEN
 ```
 
 Then authorize every request:
 
 ```sh
--H "Authorization: Bearer <admin-password>"
+-H "Authorization: Bearer <metadata-admin-token>"
 ```
 
 Legacy local script (useful outside Worker runtime):
@@ -513,24 +514,29 @@ both the response body and an `X-Reason` header.
 ## Admin Dashboard
 
 Enable the server-rendered admin dashboard (Hono JSX, no separate SPA) to manage
-blobs, users, rules, and reports:
+blobs, linked Nostr events, users, rules, and reports:
 
 ```yaml
 dashboard:
   enabled: true
-  username: admin
-  password: "" # Auto-generated and logged to stdout on first startup if blank
-  # Nostr relays used to look up kind:0 profiles in the user detail view
+  password: "${BLOSSOM_ADMIN_PASSWORD}" # At least 12 characters
+  sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}" # 32+ random characters
+  adminPubkeys:
+    - 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  # Nostr relays used for profiles and explicit event inspection
   lookupRelays:
     - wss://purplepag.es
     - wss://index.hzrd149.com
     - wss://indexer.coracle.social
 ```
 
-The dashboard is available at `http://localhost:3000/admin` and is protected by
-HTTP Basic Auth. It provides pages for:
+The dashboard is available at `http://localhost:3000/admin`. An administrator
+first signs a replay-protected challenge with an allowlisted NIP-07 browser
+extension, then enters the configured password. It provides pages for:
 
-- **Blobs** — browse, search, and force-delete blobs
+- **Blobs** — browse, search, sort, classify, preview, and force-delete blobs
+- **Events** — inspect a hex/note/nevent/naddr from configured relays and link
+  its public or encrypted files for moderation
 - **Users** — list uploaders with Nostr profile metadata lookup
 - **Rules** — view active storage retention rules
 - **Reports** — review and dismiss BUD-09 blob reports

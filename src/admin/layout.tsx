@@ -38,7 +38,7 @@ export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>{title} — Blossom Admin</title>
-      <script src="https://cdn.tailwindcss.com/3.4.17" />
+      <link rel="stylesheet" href="/admin.css" />
       {/* deno-fmt-ignore */}
       <script dangerouslySetInnerHTML={{ __html: ACTION_SCRIPT }} />
     </head>
@@ -66,7 +66,17 @@ export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
             ))}
           </ul>
           <div class="px-4 py-4 border-t border-gray-800">
-            <span class="text-xs text-gray-600">Basic Auth protected</span>
+            <span class="block text-xs text-gray-600">
+              Nostr + password protected
+            </span>
+            <form method="post" action="/admin/logout" class="mt-3">
+              <button
+                type="submit"
+                class="text-xs text-gray-400 hover:text-white"
+              >
+                Sign out
+              </button>
+            </form>
           </div>
         </nav>
 

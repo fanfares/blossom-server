@@ -281,6 +281,15 @@ export async function getBlobsForPrune(
 /** Blob record enriched with an owners array — used by the admin API. */
 export interface AdminBlobRecord extends BlobRecord {
   owners: string[];
+  events: AdminBlobEvent[];
+}
+
+/** Nostr event metadata explicitly linked to a stored blob by an administrator. */
+export interface AdminBlobEvent {
+  id: string;
+  pubkey: string;
+  kind: number;
+  encrypted: boolean;
 }
 
 /** Valid column names for blob list sorting (allowlist against SQL injection). */
@@ -299,7 +308,11 @@ const BLOB_SORT_COLUMNS = new Set(["sha256", "type", "size", "uploaded"]);
 export async function listAllBlobs(
   db: Client,
   opts: {
-    filter?: { q?: string; type?: string | string[] };
+    filter?: {
+      q?: string;
+      type?: string | string[];
+      visibility?: "encrypted" | "public" | "unlinked";
+    };
     sort?: [string, string];
     limit?: number;
     offset?: number;
@@ -309,8 +322,28 @@ export async function listAllBlobs(
   const args: (string | number)[] = [];
 
   if (opts.filter?.q) {
-    conditions.push("(b.sha256 LIKE ? OR b.type LIKE ?)");
-    args.push(`%${opts.filter.q}%`, `%${opts.filter.q}%`);
+    conditions.push(`(b.sha256 LIKE ? OR b.type LIKE ? OR EXISTS (
+      SELECT 1 FROM owners oq WHERE oq.blob = b.sha256 AND oq.pubkey LIKE ?
+    ) OR EXISTS (
+      SELECT 1 FROM admin_event_blobs aeq
+      JOIN admin_events eq ON eq.event_id = aeq.event_id
+      WHERE aeq.blob = b.sha256 AND (eq.event_id LIKE ? OR eq.pubkey LIKE ?)
+    ))`);
+    const query = `%${opts.filter.q}%`;
+    args.push(query, query, query, query, query);
+  }
+  if (opts.filter?.visibility === "encrypted") {
+    conditions.push(
+      "EXISTS (SELECT 1 FROM admin_event_blobs ae WHERE ae.blob = b.sha256 AND ae.encrypted = 1)",
+    );
+  } else if (opts.filter?.visibility === "public") {
+    conditions.push(
+      "EXISTS (SELECT 1 FROM admin_event_blobs ae WHERE ae.blob = b.sha256 AND ae.encrypted = 0)",
+    );
+  } else if (opts.filter?.visibility === "unlinked") {
+    conditions.push(
+      "NOT EXISTS (SELECT 1 FROM admin_event_blobs ae WHERE ae.blob = b.sha256)",
+    );
   }
   if (opts.filter?.type !== undefined) {
     const types = Array.isArray(opts.filter.type)
@@ -336,11 +369,13 @@ export async function listAllBlobs(
 
   let sql = `
     SELECT b.sha256, b.size, b.type, b.uploaded,
-           COALESCE(GROUP_CONCAT(o.pubkey, ','), '') AS owners
+           COALESCE((SELECT GROUP_CONCAT(o.pubkey, ',') FROM owners o WHERE o.blob = b.sha256), '') AS owners,
+           COALESCE((SELECT GROUP_CONCAT(
+             e.event_id || ':' || e.pubkey || ':' || e.kind || ':' || ae.encrypted, ','
+           ) FROM admin_event_blobs ae JOIN admin_events e ON e.event_id = ae.event_id
+             WHERE ae.blob = b.sha256), '') AS events
     FROM blobs b
-    LEFT JOIN owners o ON o.blob = b.sha256
     ${where}
-    GROUP BY b.sha256
     ORDER BY b.${safeCol} ${safeDir}
   `;
 
@@ -360,6 +395,12 @@ export async function listAllBlobs(
     type: row[2] as string | null,
     uploaded: row[3] as number,
     owners: row[4] ? (row[4] as string).split(",") : [],
+    events: row[5]
+      ? (row[5] as string).split(",").map((entry) => {
+        const [id, pubkey, kind, encrypted] = entry.split(":");
+        return { id, pubkey, kind: Number(kind), encrypted: encrypted === "1" };
+      })
+      : [],
   }));
 }
 
@@ -369,14 +410,37 @@ export async function listAllBlobs(
  */
 export async function countBlobs(
   db: Client,
-  filter?: { q?: string; type?: string | string[] },
+  filter?: {
+    q?: string;
+    type?: string | string[];
+    visibility?: "encrypted" | "public" | "unlinked";
+  },
 ): Promise<number> {
   const conditions: string[] = [];
   const args: (string | number)[] = [];
 
   if (filter?.q) {
-    conditions.push("(b.sha256 LIKE ? OR b.type LIKE ?)");
-    args.push(`%${filter.q}%`, `%${filter.q}%`);
+    conditions.push(`(b.sha256 LIKE ? OR b.type LIKE ? OR EXISTS (
+      SELECT 1 FROM owners oq WHERE oq.blob = b.sha256 AND oq.pubkey LIKE ?
+    ) OR EXISTS (
+      SELECT 1 FROM admin_event_blobs aeq JOIN admin_events eq ON eq.event_id = aeq.event_id
+      WHERE aeq.blob = b.sha256 AND (eq.event_id LIKE ? OR eq.pubkey LIKE ?)
+    ))`);
+    const query = `%${filter.q}%`;
+    args.push(query, query, query, query, query);
+  }
+  if (filter?.visibility === "encrypted") {
+    conditions.push(
+      "EXISTS (SELECT 1 FROM admin_event_blobs ae WHERE ae.blob = b.sha256 AND ae.encrypted = 1)",
+    );
+  } else if (filter?.visibility === "public") {
+    conditions.push(
+      "EXISTS (SELECT 1 FROM admin_event_blobs ae WHERE ae.blob = b.sha256 AND ae.encrypted = 0)",
+    );
+  } else if (filter?.visibility === "unlinked") {
+    conditions.push(
+      "NOT EXISTS (SELECT 1 FROM admin_event_blobs ae WHERE ae.blob = b.sha256)",
+    );
   }
   if (filter?.type !== undefined) {
     const types = Array.isArray(filter.type) ? filter.type : [filter.type];
