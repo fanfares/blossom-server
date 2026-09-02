@@ -25,13 +25,28 @@ import { buildMediaRouter } from "./media.ts";
 import { buildDeleteRouter } from "./delete.ts";
 import { buildListRouter } from "./list.ts";
 import { buildReportRouter } from "./report.ts";
+import { buildPaidStorageRouter } from "./paid-storage.ts";
+import { PaidStorageService } from "../paid-storage/service.ts";
+import type { LightningQuoteProvider } from "../payments/cashu.ts";
+import type { TreasuryForwarder } from "../payments/treasury.ts";
 
 export function buildBlossomRouter(
   db: Client,
   storage: IBlobStorage,
   config: Config,
+  services: {
+    paymentProvider?: LightningQuoteProvider;
+    treasuryForwarder?: TreasuryForwarder;
+    paidStorageService?: PaidStorageService;
+  } = {},
 ): Hono<{ Variables: BlossomVariables }> {
   const app = new Hono<{ Variables: BlossomVariables }>();
+  const paidStorage = services.paidStorageService ?? new PaidStorageService(
+    db,
+    config.paidStorage,
+    services.paymentProvider,
+    services.treasuryForwarder,
+  );
 
   // BUD-01-compliant error handler: all errors from Blossom route handlers are
   // returned as text/plain with an X-Reason header. This only fires for routes
@@ -56,9 +71,12 @@ export function buildBlossomRouter(
     app.route("/", buildReportRouter(db));
   }
 
+  // Fanfares annual quota extension. Mounted before the blob catch-all.
+  app.route("/", buildPaidStorageRouter(db, config, paidStorage));
+
   // BUD-02 + BUD-06: PUT /upload, HEAD /upload
   // Mounted before blob catch-all so HEAD /upload is not caught by /:sha256.
-  app.route("/", buildUploadRouter(db, storage, config));
+  app.route("/", buildUploadRouter(db, storage, config, paidStorage));
 
   // BUD-04: PUT /mirror
   app.route("/", buildMirrorRouter(db, storage, config));

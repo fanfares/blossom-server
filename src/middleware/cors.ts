@@ -9,7 +9,13 @@ import { cors } from "@hono/hono/cors";
 export const corsMiddleware = cors({
   origin: "*",
   allowHeaders: ["Authorization", "Content-Type", "*"],
-  allowMethods: ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"],
-  exposeHeaders: ["X-Reason", "Content-Range"],
+  allowMethods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+  exposeHeaders: [
+    "X-Reason",
+    "Content-Range",
+    "X-Lightning",
+    "X-Storage-Payment-Id",
+    "X-Storage-Purchase-Url",
+  ],
   maxAge: 86400,
 });

@@ -1,12 +1,20 @@
 import { parse as parseYaml } from "@std/yaml";
 import { type Config, ConfigSchema } from "./schema.ts";
 
-/** Recursively replace "${VAR_NAME}" placeholders with env var values. */
+/** Recursively replace `${VAR_NAME}` placeholders and fail startup when a required value is absent. */
 function interpolateEnv(value: unknown): unknown {
   if (typeof value === "string") {
     return value.replace(
       /\$\{([^}]+)\}/g,
-      (_, name) => Deno.env.get(name) ?? `\${${name}}`,
+      (_, name) => {
+        const resolved = Deno.env.get(name);
+        if (resolved === undefined) {
+          throw new Error(
+            `Required environment variable "${name}" is not set`,
+          );
+        }
+        return resolved;
+      },
     );
   }
   if (Array.isArray(value)) return value.map(interpolateEnv);

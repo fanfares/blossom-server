@@ -40,6 +40,16 @@ import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import { getBaseUrl, getBlobUrl } from "../utils/url.ts";
 import { getFileRule } from "../prune/rules.ts";
+import {
+  releaseStorageReservation,
+  reserveStorageQuota,
+} from "../db/paid-storage.ts";
+import type { PaidStorageService } from "../paid-storage/service.ts";
+import {
+  startStorageReservationLease,
+  type StorageReservationLease,
+} from "../paid-storage/reservation.ts";
+import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
 
 /** BUD-02 Blob Descriptor */
 interface BlobDescriptor {
@@ -54,6 +64,7 @@ export function buildUploadRouter(
   db: Client,
   storage: IBlobStorage,
   config: Config,
+  paidStorage: PaidStorageService,
 ): Hono<{ Variables: BlossomVariables }> {
   const app = new Hono<{ Variables: BlossomVariables }>();
 
@@ -69,12 +80,13 @@ export function buildUploadRouter(
       return errorResponse(ctx, 403, "Uploads are disabled on this server");
     }
 
-    if (config.upload.requireAuth) {
+    let preflightAuth = ctx.get("auth");
+    if (config.upload.requireAuth || paidStorage.enabled) {
       try {
-        const auth = requireAuth(ctx, "upload");
+        preflightAuth = requireAuth(ctx, "upload");
         // Reject unauthorized pubkeys during the BUD-06 preflight too, so the
         // client learns before streaming any bytes.
-        await assertUploadAllowed(config, auth.pubkey);
+        await assertUploadAllowed(config, preflightAuth.pubkey);
       } catch (err) {
         if (err instanceof HTTPException) {
           return errorResponse(ctx, err.status as 401 | 403 | 503, err.message);
@@ -108,7 +120,7 @@ export function buildUploadRouter(
     // --- Storage rule check (preflight) ---
     // storage.rules is the upload gate. auth may not be populated for HEAD
     // (auth is optional in preflight), so pass pubkey only when available.
-    const preflightPubkey = ctx.get("auth")?.pubkey;
+    const preflightPubkey = preflightAuth?.pubkey;
     const rule = getFileRule(
       { mimeType: xContentType, pubkey: preflightPubkey },
       config.storage.rules,
@@ -127,6 +139,25 @@ export function buildUploadRouter(
         415,
         `Server does not accept ${xContentType} blobs`,
       );
+    }
+
+    if (paidStorage.enabled && preflightPubkey) {
+      let requiredBytes = size;
+      if (xSha256 && (await hasBlob(db, xSha256))) {
+        const existing = await getBlob(db, xSha256);
+        requiredBytes =
+          existing && !(await isOwner(db, xSha256, preflightPubkey))
+            ? existing.size
+            : 0;
+      }
+      const paymentResponse = await getQuotaPaymentResponse(
+        ctx,
+        paidStorage,
+        preflightPubkey,
+        requiredBytes,
+        config,
+      );
+      if (paymentResponse) return paymentResponse;
     }
 
     // Check pool availability
@@ -157,7 +188,7 @@ export function buildUploadRouter(
 
     // --- 1. Auth ---
     let auth: ReturnType<typeof requireAuth> | undefined;
-    if (config.upload.requireAuth) {
+    if (config.upload.requireAuth || paidStorage.enabled) {
       try {
         auth = requireAuth(ctx, "upload");
         await assertUploadAllowed(config, auth.pubkey);
@@ -266,18 +297,78 @@ export function buildUploadRouter(
     // Derive file extension from MIME type — used for on-disk filename and URL
     const ext = mimeToExt(mimeType);
 
+    let reservationId: string | null = null;
+    let reservationLease: StorageReservationLease | null = null;
+    const releaseReservation = async () => {
+      reservationLease?.stop();
+      reservationLease = null;
+      if (reservationId) {
+        await releaseStorageReservation(db, reservationId);
+        reservationId = null;
+      }
+    };
+    if (paidStorage.enabled && auth) {
+      let requiredBytes = contentLength;
+      if (xSha256 && (await hasBlob(db, xSha256))) {
+        const existing = await getBlob(db, xSha256);
+        requiredBytes = existing && !(await isOwner(db, xSha256, auth.pubkey))
+          ? existing.size
+          : 0;
+      }
+
+      if (requiredBytes > 0) {
+        const now = Math.floor(Date.now() / 1000);
+        const reserved = await reserveStorageQuota(db, {
+          id: reqId,
+          pubkey: auth.pubkey,
+          sizeBytes: requiredBytes,
+          now,
+          expiresAt: now + config.paidStorage.reservationTtlSeconds,
+        });
+        if (!reserved) {
+          await ctx.req.raw.body?.cancel();
+          const paymentResponse = await getQuotaPaymentResponse(
+            ctx,
+            paidStorage,
+            auth.pubkey,
+            requiredBytes,
+            config,
+          );
+          if (paymentResponse) return paymentResponse;
+          return errorResponse(
+            ctx,
+            409,
+            "Storage quota changed; retry the upload",
+          );
+        }
+        reservationId = reqId;
+        reservationLease = startStorageReservationLease(db, {
+          id: reqId,
+          pubkey: auth.pubkey,
+          sizeBytes: requiredBytes,
+          ttlSeconds: config.paidStorage.reservationTtlSeconds,
+        });
+      }
+    }
+
     // --- 6. Dedup: if blob already exists, skip the whole write ---
-    if (xSha256 && (await hasBlob(db, xSha256))) {
-      await ctx.req.raw.body?.cancel();
-      const existing = await getBlob(db, xSha256);
-      if (existing) {
+    if (xSha256) {
+      const dedupResponse = await withBlobMutationLock(xSha256, async () => {
+        if (!(await hasBlob(db, xSha256))) return null;
+        await ctx.req.raw.body?.cancel();
+        const existing = await getBlob(db, xSha256);
+        if (!existing) return null;
         debug(
           debugPrefix,
           `dedup hit — returning existing blob ${xSha256.slice(0, 8)}`,
         );
         // Register this pubkey as an owner if they aren't already
-        if (auth && !(await isOwner(db, xSha256, auth.pubkey))) {
-          await insertBlob(db, existing, auth.pubkey);
+        try {
+          if (auth && !(await isOwner(db, xSha256, auth.pubkey))) {
+            await insertBlob(db, existing, auth.pubkey);
+          }
+        } finally {
+          await releaseReservation();
         }
         const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
         return ctx.json(
@@ -289,12 +380,14 @@ export function buildUploadRouter(
             uploaded: existing.uploaded,
           } satisfies BlobDescriptor,
         );
-      }
+      });
+      if (dedupResponse) return dedupResponse;
     }
 
     // --- 7. Acquire worker (503 if pool full — no queue) ---
     const body = ctx.req.raw.body;
     if (!body) {
+      await releaseReservation();
       debug(debugPrefix, "rejected: empty request body");
       return errorResponse(ctx, 400, "Request body is empty");
     }
@@ -302,6 +395,7 @@ export function buildUploadRouter(
     const pool = getPool();
     if (pool.available === 0) {
       await body.cancel();
+      await releaseReservation();
       debug(debugPrefix, "rejected: all upload workers busy");
       return errorResponse(
         ctx,
@@ -315,7 +409,13 @@ export function buildUploadRouter(
     // is inside the blobs dir (.tmp/). For S3 storage this is in the configured
     // s3.tmpDir. The worker writes directly to session.tmpPath — zero bytes
     // reach S3 until commitWrite() is called after hash verification.
-    const session = await storage.beginWrite(contentLength);
+    let session: Awaited<ReturnType<IBlobStorage["beginWrite"]>>;
+    try {
+      session = await storage.beginWrite(contentLength);
+    } catch (err) {
+      await releaseReservation();
+      throw err;
+    }
 
     debug(
       debugPrefix,
@@ -335,6 +435,7 @@ export function buildUploadRouter(
       // pool.available check and dispatch(). Rare but safe to handle.
       await body.cancel().catch(() => {});
       await storage.abortWrite(session).catch(() => {});
+      await releaseReservation();
       debug(
         debugPrefix,
         "rejected: worker race — all workers claimed before dispatch",
@@ -362,6 +463,7 @@ export function buildUploadRouter(
     } catch (err) {
       // Worker already deleted session.tmpPath on failure — abortWrite is a no-op.
       await storage.abortWrite(session).catch(() => {});
+      await releaseReservation();
       const msg = err instanceof Error ? err.message : "Upload failed";
       debug(debugPrefix, `worker error — ${msg}`);
       if (err instanceof WorkerJobError && err.errorType === "HASH_MISMATCH") {
@@ -377,6 +479,7 @@ export function buildUploadRouter(
         requireXTag(auth, hash);
       } catch (err) {
         await storage.abortWrite(session).catch(() => {});
+        await releaseReservation();
         const msg = err instanceof HTTPException ? err.message : String(err);
         debug(debugPrefix, `rejected: deferred x-tag check failed — ${msg}`);
         if (err instanceof HTTPException) {
@@ -386,39 +489,6 @@ export function buildUploadRouter(
       }
     }
 
-    // --- 10. Commit: move verified tmp file to final storage location ---
-    // For local storage: atomic Deno.rename() to <hash>.<ext>.
-    // For S3 storage: stream the verified local tmp file to S3, then delete it.
-    // commitWrite() handles dedup internally (no-op if blob already exists).
-    debug(debugPrefix, `commitWrite start hash=${hash} ext=${ext}`);
-    const t0 = Date.now();
-    try {
-      await storage.commitWrite(session, hash, ext);
-      const t1 = Date.now();
-      debug(debugPrefix, `commitWrite complete elapsed=${t1 - t0}ms`);
-    } catch (err) {
-      await storage.abortWrite(session).catch(() => {});
-      throw err;
-    }
-
-    // --- 10b. Verify the committed blob is actually retrievable ---
-    // A successful upload response is a promise that the blob can be fetched.
-    // If storage cannot see the object we just committed, fail the upload
-    // loudly instead of returning a descriptor URL that will 404 (the failure
-    // mode that silently discarded application/octet-stream uploads on R2).
-    if (!(await storage.has(hash, ext))) {
-      debug(
-        debugPrefix,
-        `post-commit verification FAILED — blob not visible in storage hash=${hash} ext=${ext}`,
-      );
-      return errorResponse(
-        ctx,
-        500,
-        "Upload failed: blob did not persist to storage",
-      );
-    }
-
-    // --- 11. Insert metadata ---
     const now = Math.floor(Date.now() / 1000);
     const blobRecord = {
       sha256: hash,
@@ -426,15 +496,65 @@ export function buildUploadRouter(
       type: mimeType !== "application/octet-stream" ? mimeType : null,
       uploaded: now,
     };
-    debug(debugPrefix, `insertBlob start hash=${hash}`);
-    const t2 = Date.now();
-    await insertBlob(
-      db,
-      blobRecord,
-      auth?.pubkey ?? "anonymous",
-    );
-    const t3 = Date.now();
-    debug(debugPrefix, `insertBlob complete elapsed=${t3 - t2}ms`);
+    const persistenceError = await withBlobMutationLock(hash, async () => {
+      // Re-check the authoritative quota after waiting for any same-hash prune.
+      if (reservationLease && !(await reservationLease.verify(size))) {
+        await storage.abortWrite(session).catch(() => {});
+        await releaseReservation();
+        return errorResponse(
+          ctx,
+          409,
+          "Storage reservation expired or quota changed; retry the upload",
+        );
+      }
+
+      // --- 10. Commit: move verified tmp file to final storage location ---
+      // For local storage: atomic Deno.rename() to <hash>.<ext>.
+      // For S3 storage: stream the verified local tmp file to S3, then delete it.
+      // commitWrite() handles dedup internally (no-op if blob already exists).
+      debug(debugPrefix, `commitWrite start hash=${hash} ext=${ext}`);
+      const t0 = Date.now();
+      try {
+        await storage.commitWrite(session, hash, ext);
+        const t1 = Date.now();
+        debug(debugPrefix, `commitWrite complete elapsed=${t1 - t0}ms`);
+      } catch (err) {
+        await storage.abortWrite(session).catch(() => {});
+        await releaseReservation();
+        throw err;
+      }
+
+      // --- 10b. Verify the committed blob is actually retrievable ---
+      // A successful upload response is a promise that the blob can be fetched.
+      // If storage cannot see the object we just committed, fail the upload
+      // loudly instead of returning a descriptor URL that will 404 (the failure
+      // mode that silently discarded application/octet-stream uploads on R2).
+      if (!(await storage.has(hash, ext))) {
+        await releaseReservation();
+        debug(
+          debugPrefix,
+          `post-commit verification FAILED — blob not visible in storage hash=${hash} ext=${ext}`,
+        );
+        return errorResponse(
+          ctx,
+          500,
+          "Upload failed: blob did not persist to storage",
+        );
+      }
+
+      // --- 11. Insert metadata before releasing the same-hash lock. ---
+      debug(debugPrefix, `insertBlob start hash=${hash}`);
+      const t2 = Date.now();
+      try {
+        await insertBlob(db, blobRecord, auth?.pubkey ?? "anonymous");
+      } finally {
+        await releaseReservation();
+      }
+      const t3 = Date.now();
+      debug(debugPrefix, `insertBlob complete elapsed=${t3 - t2}ms`);
+      return null;
+    });
+    if (persistenceError) return persistenceError;
 
     // --- 12. Return BlobDescriptor ---
     debug(
@@ -457,4 +577,54 @@ export function buildUploadRouter(
   });
 
   return app;
+}
+
+async function getQuotaPaymentResponse(
+  ctx: Parameters<typeof errorResponse>[0],
+  paidStorage: PaidStorageService,
+  pubkey: string,
+  requiredBytes: number,
+  config: Config,
+): Promise<Response | null> {
+  if (requiredBytes <= 0) return null;
+  let quota = await paidStorage.getQuota(pubkey);
+  if (quota.availableBytes >= requiredBytes) return null;
+
+  const shortfall = requiredBytes - quota.availableBytes;
+  const units = Math.ceil(shortfall / paidStorage.plan.quotaBytesPerUnit);
+  if (units > paidStorage.plan.maxUnitsPerPurchase) {
+    return errorResponse(
+      ctx,
+      507,
+      "Upload exceeds the maximum purchasable storage quota",
+    );
+  }
+
+  try {
+    let purchase = await paidStorage.getOrCreatePurchase(pubkey, units);
+    purchase = await paidStorage.refreshPurchase(purchase.id, pubkey) ??
+      purchase;
+    if (purchase.state === "paid") {
+      quota = await paidStorage.getQuota(pubkey);
+      if (quota.availableBytes >= requiredBytes) return null;
+    }
+
+    const reason = `Storage payment required: ${units} unit${
+      units === 1 ? "" : "s"
+    }`;
+    const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+    return ctx.body(reason, 402, {
+      "Content-Type": "text/plain",
+      "X-Reason": reason,
+      "X-Lightning": purchase.invoice,
+      "X-Storage-Payment-Id": purchase.id,
+      "X-Storage-Purchase-Url": `${baseUrl}/storage/purchases/${purchase.id}`,
+    });
+  } catch (err) {
+    if (err instanceof RangeError) {
+      return errorResponse(ctx, 429, err.message);
+    }
+    console.error("Failed to create storage payment challenge:", err);
+    return errorResponse(ctx, 502, "Lightning invoice provider unavailable");
+  }
 }

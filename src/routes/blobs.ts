@@ -74,9 +74,12 @@ export function buildBlobsRouter(
     const candidateExts = blob
       ? [mimeToExt(blob.type), requestedExt, ""]
       : [requestedExt, ""];
-    const dedupedExts = [...new Set(candidateExts.filter((e) => e !== undefined))];
+    const dedupedExts = [
+      ...new Set(candidateExts.filter((e) => e !== undefined)),
+    ];
     const ext = await resolveStorageExt(storage, hash, dedupedExts);
-    if (!ext) {
+    // An empty extension is a valid storage key for application/octet-stream.
+    if (ext === null) {
       return errorResponse(ctx, 404, "Blob not found in storage");
     }
 
@@ -89,7 +92,7 @@ export function buildBlobsRouter(
     }
 
     const resolvedSize = blob?.size ?? await storage.size(hash, ext);
-    const mimeType = blob?.type ?? (ext ? contentType(ext) ?? null : null) ??
+    const mimeType = blob?.type ?? (ext ? contentType(ext) : undefined) ??
       "application/octet-stream";
 
     const headers: Record<string, string> = {

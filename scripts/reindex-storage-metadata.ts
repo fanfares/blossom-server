@@ -88,7 +88,9 @@ function parseArgs(args: string[]): {
 
 function readObjectKey(obj: StorageObjectLike): string | null {
   const candidate = obj.key ?? obj.name ?? obj.objectName;
-  return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
+  return typeof candidate === "string" && candidate.length > 0
+    ? candidate
+    : null;
 }
 
 function readObjectSize(obj: StorageObjectLike): number | null {
@@ -120,7 +122,9 @@ function readUploadedTs(obj: StorageObjectLike): number {
   return Math.floor(Date.now() / 1000);
 }
 
-function parseHashAndType(key: string): { sha256: string; mime: string | null } | null {
+function parseHashAndType(
+  key: string,
+): { sha256: string; mime: string | null } | null {
   const base = key.split("/").pop() ?? key;
   const match = /^([a-f0-9]{64})(?:\.([a-zA-Z0-9]+))?$/.exec(base);
   if (!match) return null;
@@ -152,7 +156,9 @@ async function main(): Promise<void> {
       region: config.storage.s3!.region ?? "us-east-1",
     }
     : {
-      endpoint: `https://${config.storage.r2!.accountId}.r2.cloudflarestorage.com`,
+      endpoint: `https://${
+        config.storage.r2!.accountId
+      }.r2.cloudflarestorage.com`,
       bucket: config.storage.r2!.bucket,
       accessKey: config.storage.r2!.accessKey,
       secretKey: config.storage.r2!.secretKey,
@@ -175,7 +181,9 @@ async function main(): Promise<void> {
   let sizeMissing = 0;
   let inserted = 0;
 
-  console.log(`Reindex start: backend=${config.storage.backend} bucket=${storageCfg.bucket}`);
+  console.log(
+    `Reindex start: backend=${config.storage.backend} bucket=${storageCfg.bucket}`,
+  );
   if (opts.dryRun) {
     console.log("Mode: dry-run (database writes disabled)");
   }
@@ -228,7 +236,9 @@ async function main(): Promise<void> {
     inserted += 1;
 
     if (seen % 1000 === 0) {
-      console.log(`Progress: seen=${seen} parsed=${parsed} inserted=${inserted} skipped=${skipped}`);
+      console.log(
+        `Progress: seen=${seen} parsed=${parsed} inserted=${inserted} skipped=${skipped}`,
+      );
     }
   }
 

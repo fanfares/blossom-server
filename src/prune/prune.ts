@@ -19,12 +19,15 @@ import type { Client } from "@libsql/client";
 import type { StorageRule } from "../config/schema.ts";
 import type { IBlobStorage } from "../storage/interface.ts";
 import {
+  countOwners,
   deleteBlob,
   getBlobsForPrune,
   getOwnerlessBlobSha256s,
 } from "../db/blobs.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import { mimeToSqlLike, parseDuration } from "./rules.ts";
+import { hasActivePaidOwner } from "../db/paid-storage.ts";
+import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
 
 export interface PruneResult {
   /** Total blobs removed (DB row + physical file) this run. */
@@ -93,10 +96,15 @@ export async function pruneStorage(
 
       if (lastSeen < cutoffSeconds) {
         try {
-          const ext = mimeToExt(row.type);
-          await deleteBlob(db, row.sha256); // FK cascade removes owners + accessed rows
-          await storage.remove(row.sha256, ext);
-          deleted++;
+          await withBlobMutationLock(row.sha256, async () => {
+            // A paid grant promises retention through its own expiry even when a
+            // generic MIME/access rule would otherwise prune the blob sooner.
+            if (await hasActivePaidOwner(db, row.sha256, now)) return;
+            const ext = mimeToExt(row.type);
+            if (!(await deleteBlob(db, row.sha256))) return;
+            await storage.remove(row.sha256, ext);
+            deleted++;
+          });
         } catch (err) {
           console.warn(`[prune] Failed to delete blob ${row.sha256}:`, err);
           errors++;
@@ -123,10 +131,15 @@ export async function pruneStorage(
       checked.add(row.sha256);
 
       try {
-        const ext = mimeToExt(row.type);
-        await deleteBlob(db, row.sha256);
-        await storage.remove(row.sha256, ext); // fixes legacy bug: file was never removed
-        deleted++;
+        await withBlobMutationLock(row.sha256, async () => {
+          // The ownerless query is a snapshot; re-check after acquiring the
+          // hash lock so a concurrent deduplicated upload cannot be deleted.
+          if ((await countOwners(db, row.sha256)) > 0) return;
+          const ext = mimeToExt(row.type);
+          if (!(await deleteBlob(db, row.sha256))) return;
+          await storage.remove(row.sha256, ext); // fixes legacy bug: file was never removed
+          deleted++;
+        });
       } catch (err) {
         console.warn(
           `[prune] Failed to delete ownerless blob ${row.sha256}:`,

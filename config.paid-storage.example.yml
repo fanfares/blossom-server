@@ -1,0 +1,51 @@
+# Local paid-storage development configuration.
+# Run with: deno task dev config.paid-storage.example.yml
+
+host: 127.0.0.1
+port: 3001
+publicDomain: localhost
+
+database:
+  path: data/paid-storage-dev.db
+
+storage:
+  backend: local
+  local:
+    dir: data/paid-storage-blobs
+  rules:
+    - type: "*"
+      expiration: 1 year
+
+upload:
+  enabled: true
+  requireAuth: true
+
+list:
+  enabled: true
+  requireAuth: true
+  allowListOthers: false
+
+paidStorage:
+  enabled: true
+  quotaBytesPerUnit: 1073741824
+  durationDays: 365
+  priceUsdCents: 100
+  priceSats: 20
+  maxDurationYears: 5
+  cashu:
+    mintUrl: https://mint.minibits.cash/Bitcoin
+  treasury:
+    enabled: true
+    lightningAddress: operator@example.com
+    retryIntervalSeconds: 60
+
+# Mirror and media writes bypass the paid upload quota and must remain disabled
+# until those routes participate in the same reservation/finalization protocol.
+mirror:
+  enabled: false
+
+media:
+  enabled: false
+
+landing:
+  enabled: true
