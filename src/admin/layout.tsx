@@ -33,48 +33,73 @@ const NAV_ITEMS = [
 ] as const;
 
 export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
-  <html lang="en">
+  <html lang="en" class="bg-[#030303] text-gray-100">
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>{title} — Blossom Admin</title>
-      <script src="https://cdn.tailwindcss.com/3.4.17" />
+      <link rel="stylesheet" href="/admin.css" />
       {/* deno-fmt-ignore */}
       <script dangerouslySetInnerHTML={{ __html: ACTION_SCRIPT }} />
     </head>
-    <body class="bg-gray-950 text-gray-100 min-h-screen antialiased">
-      <div class="flex min-h-screen">
-        {/* Sidebar */}
-        <nav class="w-52 shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
-          <div class="px-4 py-5 border-b border-gray-800">
-            <span class="text-sm font-bold tracking-widest text-gray-400 uppercase">
-              Blossom Admin
-            </span>
+    <body class="min-h-screen overflow-x-hidden bg-[#030303] text-gray-100 antialiased">
+      <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.10),_transparent_24%),radial-gradient(circle_at_bottom,_rgba(14,165,233,0.06),_transparent_34%)]" />
+      <div class="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:72px_72px] opacity-20 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
+      <main class="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+        <header class="mb-8 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+          <div class="relative p-5 sm:p-7">
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.10),_transparent_25%)]" />
+            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div class="text-[11px] uppercase tracking-[0.35em] text-cyan-200/55">
+                  Fanfares · secured moderation
+                </div>
+                <h1 class="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                  Blossom Admin
+                </h1>
+                <p class="mt-2 max-w-xl text-sm leading-6 text-gray-400">
+                  Inspect storage, trace Nostr events, and moderate uploaded
+                  media from one private workspace.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <nav aria-label="Admin sections">
+                  <ul class="flex flex-wrap gap-2">
+                    {NAV_ITEMS.map((item) => (
+                      <li key={item.id}>
+                        <a
+                          href={item.href}
+                          class={item.id === section
+                            ? "inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.14)]"
+                            : "inline-flex rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-gray-300 transition-colors hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-100"}
+                        >
+                          {item.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+                <form method="post" action="/admin/logout">
+                  <button
+                    type="submit"
+                    class="rounded-full border border-white/10 px-4 py-2 text-sm text-gray-400 transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+                  >
+                    Sign out
+                  </button>
+                </form>
+              </div>
+            </div>
           </div>
-          <ul class="flex-1 py-3">
-            {NAV_ITEMS.map((item) => (
-              <li key={item.id}>
-                <a
-                  href={item.href}
-                  class={item.id === section
-                    ? "flex items-center px-4 py-2.5 text-sm font-medium bg-gray-800 text-white border-l-2 border-purple-500"
-                    : "flex items-center px-4 py-2.5 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors border-l-2 border-transparent"}
-                >
-                  {item.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-          <div class="px-4 py-4 border-t border-gray-800">
-            <span class="text-xs text-gray-600">Basic Auth protected</span>
-          </div>
-        </nav>
+        </header>
 
-        {/* Main content */}
-        <main class="flex-1 overflow-auto">
-          <div class="max-w-7xl mx-auto px-6 py-8">{children}</div>
-        </main>
-      </div>
+        <section>{children}</section>
+        <footer class="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 py-5 text-[11px] uppercase tracking-[0.24em] text-gray-600">
+          <span>Nostr identity + password verified</span>
+          <a href="/" class="transition-colors hover:text-cyan-200">
+            Public dashboard ↗
+          </a>
+        </footer>
+      </main>
     </body>
   </html>
 );
@@ -85,37 +110,42 @@ export const PageHeader: FC<{ title: string; subtitle?: string }> = (
   { title, subtitle },
 ) => (
   <div class="mb-6">
-    <h1 class="text-2xl font-bold text-white">{title}</h1>
-    {subtitle && <p class="mt-1 text-sm text-gray-400">{subtitle}</p>}
+    <div class="text-[11px] uppercase tracking-[0.35em] text-cyan-200/55">
+      Moderation workspace
+    </div>
+    <h2 class="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+      {title}
+    </h2>
+    {subtitle && <p class="mt-2 text-sm text-gray-400">{subtitle}</p>}
   </div>
 );
 
 export const Table: FC<{ children?: Child }> = ({ children }) => (
-  <div class="overflow-x-auto rounded-lg border border-gray-800">
-    <table class="min-w-full divide-y divide-gray-800 text-sm">
+  <div class="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.035] shadow-[0_20px_70px_rgba(0,0,0,0.32)] backdrop-blur-sm">
+    <table class="min-w-full divide-y divide-white/10 text-sm">
       {children}
     </table>
   </div>
 );
 
 export const Thead: FC<{ children?: Child }> = ({ children }) => (
-  <thead class="bg-gray-900 text-xs text-gray-400 uppercase tracking-wider">
+  <thead class="bg-white/[0.035] text-[10px] uppercase tracking-[0.22em] text-cyan-200/45">
     {children}
   </thead>
 );
 
 export const Tbody: FC<{ children?: Child }> = ({ children }) => (
-  <tbody class="divide-y divide-gray-800 bg-gray-950">{children}</tbody>
+  <tbody class="divide-y divide-white/[0.07]">{children}</tbody>
 );
 
 export const Th: FC<{ children?: Child }> = ({ children }) => (
-  <th class="px-4 py-3 text-left font-medium">{children}</th>
+  <th class="px-4 py-4 text-left font-medium">{children}</th>
 );
 
 export const Td: FC<{ children?: Child; mono?: boolean }> = (
   { children, mono },
 ) => (
-  <td class={`px-4 py-3 text-gray-300 ${mono ? "font-mono text-xs" : ""}`}>
+  <td class={`px-4 py-4 text-gray-300 ${mono ? "font-mono text-xs" : ""}`}>
     {children}
   </td>
 );
@@ -124,16 +154,16 @@ export const Badge: FC<{ children?: Child; color?: string }> = (
   { children, color = "gray" },
 ) => {
   const colors: Record<string, string> = {
-    gray: "bg-gray-800 text-gray-300",
-    red: "bg-red-950 text-red-400",
-    yellow: "bg-yellow-950 text-yellow-400",
-    green: "bg-green-950 text-green-400",
-    purple: "bg-purple-950 text-purple-400",
-    blue: "bg-blue-950 text-blue-400",
+    gray: "border-white/10 bg-white/[0.05] text-gray-300",
+    red: "border-red-400/20 bg-red-400/10 text-red-300",
+    yellow: "border-amber-400/20 bg-amber-400/10 text-amber-200",
+    green: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+    purple: "border-violet-400/20 bg-violet-400/10 text-violet-200",
+    blue: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
   };
   return (
     <span
-      class={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+      class={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${
         colors[color] ?? colors.gray
       }`}
     >
@@ -149,7 +179,7 @@ export const DangerButton: FC<{
   <button
     type="button"
     onclick={onclick}
-    class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-red-950 text-red-400 hover:bg-red-900 hover:text-red-300 transition-colors cursor-pointer border border-red-900"
+    class="inline-flex cursor-pointer items-center rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1 text-xs font-medium text-red-300 transition-colors hover:border-red-400/40 hover:bg-red-400/15 hover:text-red-200"
   >
     {children}
   </button>
@@ -162,14 +192,16 @@ export const SecondaryButton: FC<{
   <button
     type="button"
     onclick={onclick}
-    class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors cursor-pointer border border-gray-700"
+    class="inline-flex cursor-pointer items-center rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs font-medium text-gray-300 transition-colors hover:border-cyan-400/25 hover:bg-cyan-400/10 hover:text-cyan-100"
   >
     {children}
   </button>
 );
 
 export const EmptyState: FC<{ message: string }> = ({ message }) => (
-  <div class="py-16 text-center text-gray-500 text-sm">{message}</div>
+  <div class="rounded-2xl border border-dashed border-white/10 bg-white/[0.025] py-16 text-center text-sm text-gray-500">
+    {message}
+  </div>
 );
 
 // ── Pagination ───────────────────────────────────────────────────────────────
@@ -196,7 +228,7 @@ export const Pagination: FC<PaginationProps> = (
   const end = Math.min(page * pageSize, total);
 
   return (
-    <div class="mt-4 flex items-center justify-between text-sm text-gray-400">
+    <div class="mt-5 flex items-center justify-between text-sm text-gray-500">
       <span>
         {start}–{end} of {total}
       </span>
@@ -205,13 +237,13 @@ export const Pagination: FC<PaginationProps> = (
           ? (
             <a
               href={prevHref}
-              class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+              class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-gray-300 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"
             >
               ← Prev
             </a>
           )
           : (
-            <span class="px-3 py-1 rounded bg-gray-900 text-gray-600 cursor-not-allowed">
+            <span class="cursor-not-allowed rounded-full border border-white/[0.06] px-3 py-1 text-gray-700">
               ← Prev
             </span>
           )}
@@ -222,13 +254,13 @@ export const Pagination: FC<PaginationProps> = (
           ? (
             <a
               href={nextHref}
-              class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+              class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-gray-300 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"
             >
               Next →
             </a>
           )
           : (
-            <span class="px-3 py-1 rounded bg-gray-900 text-gray-600 cursor-not-allowed">
+            <span class="cursor-not-allowed rounded-full border border-white/[0.06] px-3 py-1 text-gray-700">
               Next →
             </span>
           )}

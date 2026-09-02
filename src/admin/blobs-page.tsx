@@ -49,27 +49,36 @@ interface BlobsPageProps {
   host: string;
   page: number;
   q: string;
+  visibility: "" | "encrypted" | "public" | "unlinked";
+  sort: "sha256" | "type" | "size" | "uploaded";
+  direction: "ASC" | "DESC";
+  notice?: string;
 }
 
 export const BlobsPage: FC<BlobsPageProps> = async (
-  { db, config, host, page, q },
+  { db, config, host, page, q, visibility, sort, direction, notice },
 ) => {
   const offset = (page - 1) * PAGE_SIZE;
-  const filter = q ? { q } : undefined;
+  const filter = q || visibility
+    ? { q: q || undefined, visibility: visibility || undefined }
+    : undefined;
 
   const [blobs, total] = await Promise.all([
     db.listAllBlobs({
       filter,
       limit: PAGE_SIZE,
       offset,
-      sort: ["uploaded", "DESC"],
+      sort: [sort, direction],
     }),
     db.countBlobs(filter),
   ]);
 
-  const baseUrl = q
-    ? `/admin/blobs?q=${encodeURIComponent(q)}`
-    : "/admin/blobs";
+  const baseParams = new URLSearchParams();
+  if (q) baseParams.set("q", q);
+  if (visibility) baseParams.set("visibility", visibility);
+  baseParams.set("sort", sort);
+  baseParams.set("direction", direction);
+  const baseUrl = `/admin/blobs?${baseParams.toString()}`;
 
   return (
     <AdminLayout title="Blobs" section="blobs">
@@ -80,25 +89,94 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         }`}
       />
 
+      {notice && (
+        <div class="mb-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
+          {notice}
+        </div>
+      )}
+
+      <form
+        method="post"
+        action="/admin/events/inspect"
+        class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm"
+      >
+        <input
+          type="text"
+          name="event"
+          required
+          placeholder="Event hex, note, nevent, or naddr…"
+          class="min-w-72 flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35 focus:ring-1 focus:ring-cyan-300/20"
+        />
+        <button
+          type="submit"
+          class="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-5 py-3 text-sm font-semibold text-cyan-50 transition-colors hover:bg-cyan-300/20"
+        >
+          Inspect event
+        </button>
+        <p class="basis-full text-xs leading-5 text-gray-500">
+          Fetches the signed event from configured relays and links its Blossom
+          files for moderation.
+        </p>
+      </form>
+
       {/* Search form */}
-      <form method="get" action="/admin/blobs" class="mb-4 flex gap-2">
+      <form
+        method="get"
+        action="/admin/blobs"
+        class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4"
+      >
         <input
           type="text"
           name="q"
           value={q}
-          placeholder="Search by hash or MIME type…"
-          class="flex-1 max-w-md bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500"
+          placeholder="Search hash, MIME, pubkey, or event ID…"
+          class="max-w-md flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
+        <select
+          name="visibility"
+          class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-300/35"
+        >
+          <option value="" selected={!visibility}>All visibility</option>
+          <option value="encrypted" selected={visibility === "encrypted"}>
+            Encrypted
+          </option>
+          <option value="public" selected={visibility === "public"}>
+            Public
+          </option>
+          <option value="unlinked" selected={visibility === "unlinked"}>
+            Not linked
+          </option>
+        </select>
+        <select
+          name="sort"
+          class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-300/35"
+        >
+          <option value="uploaded" selected={sort === "uploaded"}>
+            Upload date
+          </option>
+          <option value="size" selected={sort === "size"}>Size</option>
+          <option value="type" selected={sort === "type"}>MIME type</option>
+          <option value="sha256" selected={sort === "sha256"}>Hash</option>
+        </select>
+        <select
+          name="direction"
+          class="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-300 outline-none focus:border-cyan-300/35"
+        >
+          <option value="DESC" selected={direction === "DESC"}>
+            Descending
+          </option>
+          <option value="ASC" selected={direction === "ASC"}>Ascending</option>
+        </select>
         <button
           type="submit"
-          class="px-4 py-2 rounded bg-purple-700 hover:bg-purple-600 text-white text-sm font-medium transition-colors"
+          class="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-5 py-2 text-sm font-semibold text-cyan-50 transition-colors hover:bg-cyan-300/20"
         >
           Search
         </button>
-        {q && (
+        {(q || visibility || sort !== "uploaded" || direction !== "DESC") && (
           <a
             href="/admin/blobs"
-            class="px-4 py-2 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+            class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-gray-400 transition-colors hover:border-white/20 hover:text-white"
           >
             Clear
           </a>
@@ -120,6 +198,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                   <Th>Type</Th>
                   <Th>Size</Th>
                   <Th>Owners</Th>
+                  <Th>Events</Th>
                   <Th>Uploaded</Th>
                   <Th>Actions</Th>
                 </tr>
@@ -136,12 +215,12 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                   return (
                     <tr
                       key={blob.sha256}
-                      class="hover:bg-gray-900 transition-colors"
+                      class="transition-colors hover:bg-white/[0.025]"
                     >
                       <Td mono>
                         <a
                           href={`/admin/blobs/${blob.sha256}`}
-                          class="text-purple-400 hover:text-purple-300 hover:underline"
+                          class="text-cyan-200/80 transition-colors hover:text-cyan-100"
                           title={blob.sha256}
                         >
                           {truncateHash(blob.sha256)}
@@ -159,6 +238,33 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                       <Td>{formatBytes(blob.size)}</Td>
                       <Td>
                         <Badge>{blob.owners.length}</Badge>
+                      </Td>
+                      <Td>
+                        {blob.events.length === 0
+                          ? <span class="text-gray-600">—</span>
+                          : (
+                            <div class="space-y-1">
+                              {blob.events.slice(0, 3).map((event) => (
+                                <div
+                                  key={event.id}
+                                  class="flex items-center gap-1"
+                                >
+                                  <a
+                                    href={`/admin/blobs?q=${event.id}`}
+                                    title={event.id}
+                                    class="font-mono text-xs text-cyan-200/75 hover:text-cyan-100"
+                                  >
+                                    {truncateHash(event.id)}
+                                  </a>
+                                  <Badge
+                                    color={event.encrypted ? "yellow" : "green"}
+                                  >
+                                    {event.encrypted ? "encrypted" : "public"}
+                                  </Badge>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                       </Td>
                       <Td>{formatDate(blob.uploaded)}</Td>
                       <Td>

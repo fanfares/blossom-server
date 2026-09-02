@@ -46,7 +46,7 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
         <PageHeader title="User not found" />
         <p class="text-gray-400 text-sm">
           Invalid pubkey:{" "}
-          <code class="font-mono text-purple-400">{pubkey}</code>
+          <code class="font-mono text-cyan-200/75">{pubkey}</code>
         </p>
       </AdminLayout>
     );
@@ -77,7 +77,7 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
         <PageHeader title="User not found" />
         <p class="text-gray-400 text-sm">
           No blobs found for pubkey{" "}
-          <code class="font-mono text-purple-400 break-all">{pubkey}</code>
+          <code class="break-all font-mono text-cyan-200/75">{pubkey}</code>
         </p>
       </AdminLayout>
     );
@@ -119,7 +119,7 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
       />
 
       {/* Identity card */}
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5 mb-6 space-y-4">
+      <div class="mb-6 space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
         <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">
           Identity
         </h2>
@@ -144,7 +144,7 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
                 </p>
               )}
               {profile.nip05 && (
-                <p class="text-xs text-purple-400 font-mono truncate">
+                <p class="truncate font-mono text-xs text-cyan-200/75">
                   {profile.nip05}
                 </p>
               )}
@@ -183,7 +183,7 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
                 href={`https://njump.me/${npub || pubkey}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="text-xs text-purple-400 hover:text-purple-300 hover:underline"
+                class="text-xs text-cyan-200/75 transition-colors hover:text-cyan-100"
               >
                 View on njump.me ↗
               </a>
@@ -227,12 +227,12 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
               {blobs.map((blob: BlobRecord) => (
                 <tr
                   key={blob.sha256}
-                  class="hover:bg-gray-900 transition-colors"
+                  class="transition-colors hover:bg-white/[0.025]"
                 >
                   <Td mono>
                     <a
                       href={`/admin/blobs/${blob.sha256}`}
-                      class="text-purple-400 hover:text-purple-300 hover:underline"
+                      class="text-cyan-200/80 transition-colors hover:text-cyan-100"
                     >
                       {truncateHash(blob.sha256)}
                     </a>

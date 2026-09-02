@@ -75,12 +75,12 @@ export const ReportsPage: FC<ReportsPageProps> = async (
       />
 
       {/* Type filter tabs */}
-      <div class="mb-4 flex flex-wrap gap-2">
+      <div class="mb-5 flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
         <a
           href="/admin/reports"
           class={!typeFilter
-            ? "px-3 py-1.5 rounded text-xs font-medium bg-purple-700 text-white"
-            : "px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"}
+            ? "rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-xs font-semibold text-cyan-100"
+            : "rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold text-gray-400 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"}
         >
           All
         </a>
@@ -89,8 +89,8 @@ export const ReportsPage: FC<ReportsPageProps> = async (
             key={t}
             href={`/admin/reports?type=${t}`}
             class={typeFilter === t
-              ? "px-3 py-1.5 rounded text-xs font-medium bg-purple-700 text-white"
-              : "px-3 py-1.5 rounded text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"}
+              ? "rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-xs font-semibold text-cyan-100"
+              : "rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold text-gray-400 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"}
           >
             {t}
           </a>
@@ -119,12 +119,12 @@ export const ReportsPage: FC<ReportsPageProps> = async (
                 return (
                   <tr
                     key={report.id}
-                    class="hover:bg-gray-900 transition-colors"
+                    class="transition-colors hover:bg-white/[0.025]"
                   >
                     <Td mono>
                       <a
                         href={`/admin/reports/${report.id}`}
-                        class="text-purple-400 hover:text-purple-300 hover:underline"
+                        class="text-cyan-200/80 transition-colors hover:text-cyan-100"
                       >
                         #{report.id}
                       </a>
@@ -141,7 +141,7 @@ export const ReportsPage: FC<ReportsPageProps> = async (
                     <Td mono>
                       <a
                         href={`/admin/blobs/${report.blob}`}
-                        class="text-purple-400 hover:text-purple-300 hover:underline"
+                        class="text-cyan-200/80 transition-colors hover:text-cyan-100"
                         title={report.blob}
                       >
                         {truncateHash(report.blob)}

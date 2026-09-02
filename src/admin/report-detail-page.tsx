@@ -40,7 +40,7 @@ export const ReportDetailPage: FC<ReportDetailPageProps> = async (
         <PageHeader title="Report not found" />
         <p class="text-gray-400 text-sm">
           No report with ID{" "}
-          <code class="font-mono text-purple-400">#{reportId}</code> exists.
+          <code class="font-mono text-cyan-200/75">#{reportId}</code> exists.
         </p>
         <a
           href="/admin/reports"
@@ -68,7 +68,7 @@ export const ReportDetailPage: FC<ReportDetailPageProps> = async (
 
       <PageHeader title={`Report #${report.id}`} />
 
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4 max-w-2xl">
+      <div class="max-w-2xl space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
         <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">
           Details
         </h2>
@@ -95,7 +95,7 @@ export const ReportDetailPage: FC<ReportDetailPageProps> = async (
             <dd class="font-mono text-xs text-gray-200 break-all">
               <a
                 href={`/admin/blobs/${report.blob}`}
-                class="text-purple-400 hover:text-purple-300 hover:underline"
+                class="text-cyan-200/75 transition-colors hover:text-cyan-100"
               >
                 {report.blob}
               </a>

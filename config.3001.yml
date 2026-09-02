@@ -83,6 +83,13 @@ report:
   enabled: true
 
 dashboard:
-  enabled: false
-  username: admin
-  password: ""
+  enabled: true
+  # Supply this at startup, for example BLOSSOM_ADMIN_PASSWORD=... deno task dev:local.
+  password: "${BLOSSOM_ADMIN_PASSWORD}"
+  sessionSecret: "local-only-demo-session-secret-change-me"
+  adminPubkeys:
+    - 29e1097c0905ffef6e970a20b1379fd12709f26b9cf93c027930a68cf2707351
+  lookupRelays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io

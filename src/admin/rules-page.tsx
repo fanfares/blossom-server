@@ -39,11 +39,11 @@ export const RulesPage: FC<RulesPageProps> = ({ config }) => {
         } configured`}
       />
 
-      <div class="mb-4 p-4 bg-gray-900 border border-gray-800 rounded-lg text-sm text-gray-400">
+      <div class="mb-5 rounded-2xl border border-white/10 bg-white/[0.04] p-5 text-sm leading-6 text-gray-400 backdrop-blur-sm">
         Rules are evaluated in order. The first matching rule wins. Rules are
-        defined in <code class="font-mono text-purple-400">config.yml</code>
+        defined in <code class="font-mono text-cyan-200/75">config.yml</code>
         {" "}
-        under <code class="font-mono text-purple-400">storage.rules</code>.
+        under <code class="font-mono text-cyan-200/75">storage.rules</code>.
       </div>
 
       {rules.length === 0
@@ -63,7 +63,7 @@ export const RulesPage: FC<RulesPageProps> = ({ config }) => {
             </Thead>
             <Tbody>
               {rules.map((rule, idx) => (
-                <tr key={idx} class="hover:bg-gray-900 transition-colors">
+                <tr key={idx} class="transition-colors hover:bg-white/[0.025]">
                   <Td>
                     <span class="text-gray-500 font-mono text-xs">
                       {idx + 1}
@@ -125,7 +125,7 @@ export const RulesPage: FC<RulesPageProps> = ({ config }) => {
         )}
 
       {/* Global settings */}
-      <div class="mt-6 bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <div class="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-sm">
         <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
           Global Storage Settings
         </h2>

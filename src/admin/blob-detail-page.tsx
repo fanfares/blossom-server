@@ -2,6 +2,7 @@ import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
+import { nip19 } from "nostr-tools";
 import {
   AdminLayout,
   Badge,
@@ -43,7 +44,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
         <PageHeader title="Blob not found" />
         <p class="text-gray-400 text-sm">
           No blob with hash{" "}
-          <code class="font-mono text-purple-400">{sha256}</code> exists.
+          <code class="font-mono text-cyan-200/75">{sha256}</code> exists.
         </p>
         <a
           href="/admin/blobs"
@@ -61,6 +62,9 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
   });
   const owners = blobsWithOwners[0]?.sha256 === sha256
     ? blobsWithOwners[0].owners
+    : [];
+  const events = blobsWithOwners[0]?.sha256 === sha256
+    ? blobsWithOwners[0].events
     : [];
 
   const blobUrl = getBlobUrl(blob.sha256, blob.type, config, host);
@@ -84,9 +88,9 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
 
       <PageHeader title={`Blob ${truncateHash(sha256)}`} />
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Metadata card */}
-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-5 space-y-4">
+        <div class="space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">
             Details
           </h2>
@@ -126,13 +130,50 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                       <div key={pk}>
                         <a
                           href={`/admin/users?q=${pk}`}
-                          class="font-mono text-xs text-purple-400 hover:text-purple-300 hover:underline break-all"
+                          class="break-all font-mono text-xs text-cyan-200/75 transition-colors hover:text-cyan-100"
                         >
                           {pk}
                         </a>
+                        <div class="font-mono text-xs text-gray-600 break-all">
+                          {nip19.npubEncode(pk)}
+                        </div>
                       </div>
                     ))
                   )}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-xs text-gray-500 mb-0.5">
+                Related events ({events.length})
+              </dt>
+              <dd class="space-y-2 mt-1">
+                {events.length === 0
+                  ? <span class="text-gray-600 text-sm">Not indexed</span>
+                  : events.map((event) => (
+                    <div
+                      key={event.id}
+                      class="rounded border border-gray-800 p-2"
+                    >
+                      <a
+                        href={`/admin/blobs?q=${event.id}`}
+                        class="break-all font-mono text-xs text-cyan-200/75 hover:text-cyan-100"
+                      >
+                        {event.id}
+                      </a>
+                      <div class="mt-1 flex gap-2 text-xs text-gray-500">
+                        <span>kind {event.kind}</span>
+                        <Badge color={event.encrypted ? "yellow" : "green"}>
+                          {event.encrypted ? "encrypted" : "public"}
+                        </Badge>
+                      </div>
+                      <a
+                        href={`/admin/users?q=${event.pubkey}`}
+                        class="mt-1 block font-mono text-xs text-gray-500 hover:text-gray-300 break-all"
+                      >
+                        author {event.pubkey}
+                      </a>
+                    </div>
+                  ))}
               </dd>
             </div>
           </dl>
@@ -155,7 +196,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
         </div>
 
         {/* Preview card */}
-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+        <div class="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
             Preview
           </h2>
@@ -183,7 +224,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                 href={blobUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="text-purple-400 hover:text-purple-300 text-sm hover:underline"
+                class="text-sm text-cyan-200/75 transition-colors hover:text-cyan-100"
               >
                 Open file ↗
               </a>
