@@ -364,16 +364,18 @@ report:
 # ---------------------------------------------------------------------------
 
 # dashboard:
-#   # Enable the admin dashboard at /admin and the admin API endpoints.
-#   # Protected by HTTP Basic Auth. Disabled by default — opt in explicitly.
+#   # Enable the admin dashboard at /admin and its action endpoints.
+#   # Protected by an allowlisted Nostr signature plus a password.
 #   enabled: true
 #
-#   # HTTP Basic Auth credentials for the admin dashboard.
-#   username: admin
+#   # Second-factor password and session-signing secret. Use an environment
+#   # secret in production; configuration rejects values shorter than 12 chars.
+#   password: "${BLOSSOM_ADMIN_PASSWORD}"
+#   sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}" # 32+ random characters
 #
-#   # If blank, a random password is generated at startup and printed to stdout.
-#   # Set an explicit password for stable deployments.
-#   password: ""
+#   # Hex Nostr pubkeys permitted to start an admin session.
+#   adminPubkeys:
+#     - 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 #
 #   # Nostr relay URLs used to look up kind:0 profile metadata for pubkeys
 #   # shown on user detail pages in the admin dashboard.

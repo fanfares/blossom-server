@@ -30,9 +30,13 @@
     "CF_ACCOUNT_ID": "4e84c1691dd1a8230152bfc2551cec85",
     "R2_BUCKET": "ff-blossom-test",
     "BLOSSOM_PUBLIC_DOMAIN": ""
-    // BLOSSOM_ADMIN_PASSWORD is deliberately NOT declared here. Vars and
-    // secrets share one namespace, so an empty var overwrites the secret on
-    // every deploy. Set it with: wrangler secret put BLOSSOM_ADMIN_PASSWORD
+    // Admin credentials are deliberately NOT declared here. Vars and secrets
+    // share one namespace, so an empty var overwrites a secret on every deploy.
+    // Set the dashboard password with: wrangler secret put BLOSSOM_ADMIN_PASSWORD
+    // Also set the independent signing key with:
+    // wrangler secret put BLOSSOM_ADMIN_SESSION_SECRET
+    // The edge-only metadata reindex endpoint uses a third independent secret:
+    // wrangler secret put BLOSSOM_META_ADMIN_TOKEN
   },
   "observability": {
     "enabled": true

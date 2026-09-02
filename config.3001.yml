@@ -83,6 +83,13 @@ report:
   enabled: true
 
 dashboard:
-  enabled: false
-  username: admin
-  password: ""
+  enabled: true
+  # Local-only demo credential. Never copy this password into a deployment.
+  password: "fanfares-demo-admin"
+  sessionSecret: "local-only-demo-session-secret-change-me"
+  adminPubkeys:
+    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  lookupRelays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io

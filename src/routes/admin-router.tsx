@@ -2,7 +2,8 @@
  * Admin dashboard router — runs on the main thread with direct database access.
  *
  * Owns all /admin/* SSR pages and JSON action endpoints.
- * HTTP Basic Auth gates the entire /admin/* namespace.
+ * An allowlisted Nostr signature and password-authenticated session gate the
+ * entire /admin/* namespace. Login routes are the only public exceptions.
  *
  * Mounted at /admin in the parent app. Internal paths are relative to that prefix:
  *   GET  /admin                              → redirect to /admin/blobs
@@ -20,7 +21,6 @@
  */
 
 import { Hono } from "@hono/hono";
-import { basicAuth } from "@hono/hono/basic-auth";
 import type { Client } from "@libsql/client";
 import type { IBlobStorage } from "../storage/interface.ts";
 import type { Config } from "../config/schema.ts";
@@ -36,6 +36,8 @@ import { RulesPage } from "../admin/rules-page.tsx";
 import { ReportsPage } from "../admin/reports-page.tsx";
 import { ReportDetailPage } from "../admin/report-detail-page.tsx";
 import { lookupRelays$ } from "../admin/nostr-profile.ts";
+import { inspectAndIndexEvent } from "../admin/event-index.ts";
+import { registerAdminAuthentication } from "./admin-auth-routes.tsx";
 
 export function buildAdminRouter(
   db: Client,
@@ -50,15 +52,7 @@ export function buildAdminRouter(
   const dbHandle = new DirectDbHandle(db);
   const app = new Hono();
 
-  // HTTP Basic Auth gate — covers all routes on this sub-app.
-  // The "*" pattern matches everything because this router is mounted at /admin.
-  app.use(
-    "*",
-    basicAuth({
-      username: config.dashboard.username,
-      password: config.dashboard.password,
-    }),
-  );
+  registerAdminAuthentication(app, config);
 
   // ── SSR pages ───────────────────────────────────────────────────────────────
 
@@ -67,10 +61,59 @@ export function buildAdminRouter(
   app.get("/blobs", (c) => {
     const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
     const q = c.req.query("q") ?? "";
+    const visibilityValue = c.req.query("visibility") ?? "";
+    const visibility =
+      ["encrypted", "public", "unlinked"].includes(visibilityValue)
+        ? visibilityValue as "encrypted" | "public" | "unlinked"
+        : "";
+    const sortValue = c.req.query("sort") ?? "uploaded";
+    const sort = ["sha256", "type", "size", "uploaded"].includes(sortValue)
+      ? sortValue as "sha256" | "type" | "size" | "uploaded"
+      : "uploaded";
+    const direction = c.req.query("direction") === "ASC" ? "ASC" : "DESC";
     const host = c.req.header("host") ?? "localhost";
     return c.html(
-      <BlobsPage db={dbHandle} config={config} host={host} page={page} q={q} />,
+      <BlobsPage
+        db={dbHandle}
+        config={config}
+        host={host}
+        page={page}
+        q={q}
+        visibility={visibility}
+        sort={sort}
+        direction={direction}
+        notice={c.req.query("notice")}
+      />,
     );
+  });
+
+  app.post("/events/inspect", async (c) => {
+    const body = await c.req.parseBody();
+    const identifier = typeof body.event === "string" ? body.event : "";
+    try {
+      const result = await inspectAndIndexEvent(
+        db,
+        identifier,
+        config.dashboard.lookupRelays,
+        config.publicDomain || new URL(c.req.url).hostname,
+      );
+      const notice =
+        `Indexed event ${result.event.id}: ${result.linked.length} stored file(s), ${result.missing.length} missing.`;
+      return c.redirect(
+        `/admin/blobs?q=${result.event.id}&notice=${
+          encodeURIComponent(notice)
+        }`,
+        303,
+      );
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Event inspection failed.";
+      return c.redirect(
+        `/admin/blobs?notice=${encodeURIComponent(message)}`,
+        303,
+      );
+    }
   });
 
   app.get("/blobs/:sha256", (c) => {
