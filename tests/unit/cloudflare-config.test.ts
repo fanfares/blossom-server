@@ -5,6 +5,7 @@
  *   - Production BUD-11 server scoping uses the canonical Fanfares hostname
  *   - Production writes are restricted to the early-access pubkey allowlist
  *   - Production quota and purchase records use the durable Turso database
+ *   - Staging uses its isolated hostname and enables the one-sat paid-storage flow
  *   - Missing deployment secrets fail configuration loading before startup
  * @dependencies config loader and committed Cloudflare deployment config
  * @type unit | deno
@@ -22,6 +23,8 @@ const CLOUDFLARE_TEST_ENV = {
   R2_SECRET_ACCESS_KEY: "test-r2-secret-key",
 };
 
+const STAGING_PUBLIC_DOMAIN = "staging.blossom.fanfares.live";
+
 /** Loads the committed Cloudflare config with non-secret test values and restores the process environment afterward. */
 async function loadTestCloudflareConfig() {
   const previous = new Map<string, string | undefined>();
@@ -31,6 +34,27 @@ async function loadTestCloudflareConfig() {
   }
   try {
     return await loadConfig("config.cloudflare.yml");
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
+}
+
+/** Loads the committed staging config with isolated test resource identifiers and restores the process environment afterward. */
+async function loadTestStagingConfig() {
+  const environment = {
+    ...CLOUDFLARE_TEST_ENV,
+    BLOSSOM_PUBLIC_DOMAIN: STAGING_PUBLIC_DOMAIN,
+  };
+  const previous = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(environment)) {
+    previous.set(name, Deno.env.get(name));
+    Deno.env.set(name, value);
+  }
+  try {
+    return await loadConfig("config.cloudflare.staging.yml");
   } finally {
     for (const [name, value] of previous) {
       if (value === undefined) Deno.env.delete(name);
@@ -67,6 +91,17 @@ Deno.test("Cloudflare deployment config restricts writes to the pubkey allowlist
   // Break-glass access must exist so a list or relay problem cannot lock the
   // operator out of their own server.
   assertEquals(config.uploadAllowlist.extraPubkeys.length > 0, true);
+});
+
+Deno.test("Staging Cloudflare config enables paid storage only on the isolated hostname", async () => {
+  const config = await loadTestStagingConfig();
+
+  assertEquals(config.publicDomain, STAGING_PUBLIC_DOMAIN);
+  assertEquals(config.paidStorage.enabled, true);
+  assertEquals(config.paidStorage.priceSats, 1);
+  assertEquals(config.paidStorage.treasury.enabled, false);
+  assertEquals(config.upload.requireAuth, true);
+  assertEquals(config.delete.requireAuth, true);
 });
 
 Deno.test("Configuration loading rejects a missing environment placeholder", async () => {

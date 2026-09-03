@@ -1,8 +1,8 @@
 # Staging deployment config (fanfares-blossom-server-staging worker).
 # Identical to config.cloudflare.yml except where marked STAGING. The two
 # deliberate differences: paid storage is ON at a 1-sat test price, and the
-# public domain comes from the worker env instead of being hardcoded, since
-# the staging worker lives on a workers.dev hostname.
+# public domain comes from the worker env so the application and Wrangler
+# deployment configuration retain a single canonical staging hostname.
 host: 0.0.0.0
 port: 3000
 

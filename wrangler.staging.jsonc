@@ -8,15 +8,16 @@
   //   npx wrangler r2 bucket create ff-blossom-staging
   //   npx wrangler d1 create blossom-metadata-staging
   //     -> paste the printed database_id below
-  //   Fill in BLOSSOM_PUBLIC_DOMAIN below with the worker's bare hostname
-  //   (fanfares-blossom-server-staging.<your-workers-subdomain>.workers.dev —
-  //   the subdomain is the same one the existing worker's workers.dev URL uses).
+  //   npx wrangler d1 execute blossom-metadata-staging --remote \
+  //     --file scripts/d1/schema.sql --config wrangler.staging.jsonc
+  //   The canonical hostname is staging.blossom.fanfares.live. Wrangler creates
+  //   and manages its DNS record as a Worker Custom Domain during deployment.
   //   npx wrangler secret put TURSO_DATABASE_URL --config wrangler.staging.jsonc
   //   npx wrangler secret put TURSO_AUTH_TOKEN --config wrangler.staging.jsonc
   //   npx wrangler secret put R2_ACCESS_KEY_ID --config wrangler.staging.jsonc
   //   npx wrangler secret put R2_SECRET_ACCESS_KEY --config wrangler.staging.jsonc
-  //     (same R2 API key pair the main worker uses, unless it is scoped to a
-  //      single bucket — then mint a key that can reach ff-blossom-staging)
+  //     (use a dedicated key scoped to ff-blossom-staging; do not reuse the
+  //      production R2 credential pair)
   //
   // Deploy / redeploy:
   //   npx wrangler deploy --config wrangler.staging.jsonc
@@ -25,9 +26,20 @@
   //   GET https://<BLOSSOM_PUBLIC_DOMAIN>/            -> 200, title ends "(staging)"
   //   GET https://<BLOSSOM_PUBLIC_DOMAIN>/storage/account -> 401 (never 404)
   "$schema": "node_modules/wrangler/config-schema.json",
+  // This is a deployment guardrail, not an application variable. It makes a
+  // login for any other Cloudflare account fail instead of creating staging
+  // resources beside unrelated Workers.
+  "account_id": "4e84c1691dd1a8230152bfc2551cec85",
   "name": "fanfares-blossom-server-staging",
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-24",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "staging.blossom.fanfares.live",
+      "custom_domain": true
+    }
+  ],
   "containers": [
     {
       "class_name": "BlossomAppContainer",
@@ -53,12 +65,8 @@
   ],
   "vars": {
     "CF_ACCOUNT_ID": "4e84c1691dd1a8230152bfc2551cec85",
-    "R2_BUCKET": "ff-blossom-staging"
-    // BLOSSOM_PUBLIC_DOMAIN is deliberately NOT pre-filled: the staging config
-    // interpolates it, so the container fails closed at startup ("Required
-    // environment variable ... is not set") until it is added here with the
-    // real staging hostname. Add it as:
-    //   "BLOSSOM_PUBLIC_DOMAIN": "fanfares-blossom-server-staging.<subdomain>.workers.dev"
+    "R2_BUCKET": "ff-blossom-staging",
+    "BLOSSOM_PUBLIC_DOMAIN": "staging.blossom.fanfares.live"
     // BLOSSOM_ADMIN_PASSWORD stays a secret, never a var (an empty var
     // overwrites the secret on every deploy — vars and secrets share a
     // namespace).
