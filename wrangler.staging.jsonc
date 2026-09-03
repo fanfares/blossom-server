@@ -78,8 +78,7 @@
     {
       "binding": "blossom_metadata",
       "database_name": "blossom-metadata-staging",
-      // Paste the id printed by: npx wrangler d1 create blossom-metadata-staging
-      "database_id": ""
+      "database_id": "7b062120-95d6-4b7b-b0e2-2a4d4cbfe6f7"
     }
   ],
   "r2_buckets": [
