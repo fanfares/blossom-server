@@ -1,0 +1,104 @@
+# Deploys the Blossom worker (and its container image) to Cloudflare.
+#
+# Why this exists: `wrangler deploy` with a container needs Docker to build the
+# image, so deploys used to happen from whichever laptop had Docker and a
+# wrangler login. That made the deploy owned by a person. This workflow makes
+# it owned by the repository instead:
+#
+#   - It runs only when a human clicks "Run workflow" (workflow_dispatch). No
+#     push, tag, or pull request can trigger a deploy.
+#   - Each target is a GitHub Environment (staging, production). The Cloudflare
+#     token lives as an *environment* secret, so a job can only read it when
+#     it targets that environment, and the environment can require reviewers
+#     before the job is allowed to start. Approval is recorded in the
+#     deployment history.
+#   - The repo is public. GitHub never exposes secrets to workflows triggered
+#     from forks, and workflow_dispatch cannot be invoked from a fork anyway.
+#   - production is only deployable from master. The check is enforced in the
+#     job, not left to whoever clicks the button.
+#   - One deploy per target at a time (concurrency group), never cancelled
+#     mid-flight, so two overlapping runs cannot race a container migration.
+#   - The job is not "done" when wrangler exits; it is done when the live
+#     hostname answers the way the config says it should.
+name: Deploy to Cloudflare
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment target
+        type: choice
+        required: true
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.target }}
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_ACCOUNT_ID: 4e84c1691dd1a8230152bfc2551cec85
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    steps:
+      - name: Refuse to deploy production from anything but master
+        if: inputs.target == 'production' && github.ref != 'refs/heads/master'
+        run: |
+          echo "::error::production deploys must run from master (got ${{ github.ref }})"
+          exit 1
+
+      - name: Resolve config and hostname for ${{ inputs.target }}
+        id: cfg
+        run: |
+          case "${{ inputs.target }}" in
+            staging)
+              echo "config=wrangler.staging.jsonc" >> "$GITHUB_OUTPUT"
+              echo "host=staging.blossom.fanfares.live" >> "$GITHUB_OUTPUT" ;;
+            production)
+              echo "config=wrangler.jsonc" >> "$GITHUB_OUTPUT"
+              echo "host=blossom.fanfares.live" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      # Docker is preinstalled on ubuntu-latest; wrangler uses it to build the
+      # container image declared in the config and pushes it to Cloudflare's
+      # registry as part of `deploy`.
+      - name: wrangler deploy
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.129.0"
+          command: deploy --config ${{ steps.cfg.outputs.config }}
+
+      # The container only starts on the first request, and it fails closed at
+      # startup if TURSO_* / R2_* secrets are missing or wrong. So a 200 on /
+      # is the end-to-end proof: DNS, worker, container boot, database, all up.
+      # /storage/account must answer 401 (auth required), never 404: a 404
+      # means the paid-storage routes are not mounted.
+      - name: Verify the live hostname
+        run: |
+          host="${{ steps.cfg.outputs.host }}"
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "https://$host/" || true)
+            echo "attempt $i: GET / -> $code"
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          [ "$code" = "200" ] || { echo "::error::$host did not come up (last status $code)"; exit 1; }
+          acct=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$host/storage/account" || true)
+          echo "GET /storage/account -> $acct"
+          [ "$acct" = "401" ] || { echo "::error::expected 401 from /storage/account, got $acct"; exit 1; }
