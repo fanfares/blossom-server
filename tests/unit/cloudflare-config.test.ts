@@ -99,7 +99,11 @@ Deno.test("Staging Cloudflare config enables paid storage only on the isolated h
   assertEquals(config.publicDomain, STAGING_PUBLIC_DOMAIN);
   assertEquals(config.paidStorage.enabled, true);
   assertEquals(config.paidStorage.priceSats, 1);
-  assertEquals(config.paidStorage.treasury.enabled, false);
+  assertEquals(config.paidStorage.treasury.enabled, true);
+  assertEquals(
+    config.paidStorage.treasury.lightningAddress,
+    "fanfares@rizful.com",
+  );
   assertEquals(config.upload.requireAuth, true);
   assertEquals(config.delete.requireAuth, true);
 });

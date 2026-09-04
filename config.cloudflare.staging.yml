@@ -73,11 +73,12 @@ paidStorage:
   cashu:
     mintUrl: https://mint.minibits.cash/Bitcoin
   treasury:
-    # Disabled on staging: purchases accrue in the server wallet and the
-    # treasury outbox records them, which is enough to test the purchase and
-    # upload paths. Enabling requires an explicit lightningAddress (config
-    # validation fails closed without one).
-    enabled: false
+    # Forward settled staging purchases to the Fanfares Lightning Address so
+    # test sats land in the operator wallet instead of accruing as unclaimed
+    # Cashu quotes at the mint. Config validation fails closed if enabled
+    # without a lightningAddress.
+    enabled: true
+    lightningAddress: fanfares@rizful.com
     retryIntervalSeconds: 60
 
 media:
