@@ -5,7 +5,7 @@
  *   - Production BUD-11 server scoping uses the canonical Fanfares hostname
  *   - Production writes are restricted to the early-access pubkey allowlist
  *   - Production quota and purchase records use the durable Turso database
- *   - Staging uses its isolated hostname and enables the one-sat paid-storage flow
+ *   - Staging uses its isolated hostname and forwards low-cost storage payments to its test wallet
  *   - Missing deployment secrets fail configuration loading before startup
  * @dependencies config loader and committed Cloudflare deployment config
  * @type unit | deno
@@ -93,13 +93,17 @@ Deno.test("Cloudflare deployment config restricts writes to the pubkey allowlist
   assertEquals(config.uploadAllowlist.extraPubkeys.length > 0, true);
 });
 
-Deno.test("Staging Cloudflare config enables paid storage only on the isolated hostname", async () => {
+Deno.test("Staging Cloudflare config forwards paid storage to its dedicated test wallet", async () => {
   const config = await loadTestStagingConfig();
 
   assertEquals(config.publicDomain, STAGING_PUBLIC_DOMAIN);
   assertEquals(config.paidStorage.enabled, true);
-  assertEquals(config.paidStorage.priceSats, 1);
-  assertEquals(config.paidStorage.treasury.enabled, false);
+  assertEquals(config.paidStorage.priceSats, 5);
+  assertEquals(config.paidStorage.treasury.enabled, true);
+  assertEquals(
+    config.paidStorage.treasury.lightningAddress,
+    "fanfares@rizful.com",
+  );
   assertEquals(config.upload.requireAuth, true);
   assertEquals(config.delete.requireAuth, true);
 });
