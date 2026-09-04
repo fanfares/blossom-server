@@ -7,7 +7,6 @@
   // One-time setup, run from this directory:
   //   npx wrangler r2 bucket create ff-blossom-staging
   //   npx wrangler d1 create blossom-metadata-staging
-  //     -> paste the printed database_id below
   //   npx wrangler d1 execute blossom-metadata-staging --remote \
   //     --file scripts/d1/schema.sql --config wrangler.staging.jsonc
   //   The canonical hostname is staging.blossom.fanfares.live. Wrangler creates

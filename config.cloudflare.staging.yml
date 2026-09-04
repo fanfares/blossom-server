@@ -1,6 +1,6 @@
 # Staging deployment config (fanfares-blossom-server-staging worker).
 # Identical to config.cloudflare.yml except where marked STAGING. The two
-# deliberate differences: paid storage is ON at a 1-sat test price, and the
+# deliberate differences: paid storage is ON at a 5-sat test price, and the
 # public domain comes from the worker env so the application and Wrangler
 # deployment configuration retain a single canonical staging hostname.
 host: 0.0.0.0
@@ -63,20 +63,19 @@ list:
   requireAuth: false
 
 paidStorage:
-  # STAGING: enabled at a 1-sat unit price so the flow can be exercised
-  # cheaply. The production config (config.cloudflare.yml) keeps this OFF
+  # STAGING: enabled at a 5-sat unit price so the flow, including the current
+  # 2-sat Minibits forwarding reserve, can be exercised cheaply. The
+  # production config (config.cloudflare.yml) keeps this OFF
   # until migrations, reconciliation, mint health, and legacy-user quota
   # policy are verified; nothing in this file ever deploys to production.
   enabled: true
-  priceSats: 1
+  priceSats: 5
   maxDurationYears: 5
   cashu:
     mintUrl: https://mint.minibits.cash/Bitcoin
   treasury:
-    # Forward settled staging purchases to the Fanfares Lightning Address so
-    # test sats land in the operator wallet instead of accruing as unclaimed
-    # Cashu quotes at the mint. Config validation fails closed if enabled
-    # without a lightningAddress.
+    # STAGING: claim each settled Minibits quote and forward the available
+    # value, less Lightning routing fees, to the dedicated test wallet.
     enabled: true
     lightningAddress: fanfares@rizful.com
     retryIntervalSeconds: 60
