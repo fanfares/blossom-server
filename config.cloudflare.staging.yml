@@ -1,0 +1,95 @@
+# Staging deployment config (fanfares-blossom-server-staging worker).
+# Identical to config.cloudflare.yml except where marked STAGING. The two
+# deliberate differences: paid storage is ON at a 1-sat test price, and the
+# public domain comes from the worker env so the application and Wrangler
+# deployment configuration retain a single canonical staging hostname.
+host: 0.0.0.0
+port: 3000
+
+# STAGING: interpolated from the worker's BLOSSOM_PUBLIC_DOMAIN var (bare
+# hostname, no scheme). Startup fails closed if it is unset, and BUD-11
+# server-scoped tokens are rejected if it is wrong — so it must match the
+# hostname clients actually use.
+publicDomain: "${BLOSSOM_PUBLIC_DOMAIN}"
+
+# Paid grants, reservations, ownership, and treasury state must survive
+# Cloudflare Container replacement. Local SQLite is ephemeral in this runtime.
+database:
+  url: "${TURSO_DATABASE_URL}"
+  authToken: "${TURSO_AUTH_TOKEN}"
+
+storage:
+  backend: r2
+  r2:
+    accountId: "${CF_ACCOUNT_ID}"
+    bucket: "${R2_BUCKET}"
+    accessKey: "${R2_ACCESS_KEY_ID}"
+    secretKey: "${R2_SECRET_ACCESS_KEY}"
+    tmpDir: /tmp/blossom-r2-tmp
+
+upload:
+  enabled: true
+  requireAuth: true
+
+# Only Fanfares users may write. BUD-11 auth alone proves nothing about who is
+# uploading (any generated key satisfies it), so writes are additionally
+# restricted to the pubkeys followed by the early-access curator's kind:3 list —
+# the same list the Fanfares API gates early access on, and the same list the
+# compose UI already checks client-side. Reads stay open for buyers.
+uploadAllowlist:
+  enabled: true
+  listPubkey: d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  relays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io
+  # Break-glass: the curator key itself always retains write access, so a bad
+  # list or relay outage can never lock the operator out.
+  extraPubkeys:
+    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  refreshSeconds: 300
+  staleSeconds: 86400
+  timeoutMs: 5000
+
+mirror:
+  enabled: false
+  requireAuth: true
+
+delete:
+  requireAuth: true
+
+list:
+  enabled: true
+  requireAuth: false
+
+paidStorage:
+  # STAGING: enabled at a 1-sat unit price so the flow can be exercised
+  # cheaply. The production config (config.cloudflare.yml) keeps this OFF
+  # until migrations, reconciliation, mint health, and legacy-user quota
+  # policy are verified; nothing in this file ever deploys to production.
+  enabled: true
+  priceSats: 1
+  maxDurationYears: 5
+  cashu:
+    mintUrl: https://mint.minibits.cash/Bitcoin
+  treasury:
+    # Disabled on staging: purchases accrue in the server wallet and the
+    # treasury outbox records them, which is enough to test the purchase and
+    # upload paths. Enabling requires an explicit lightningAddress (config
+    # validation fails closed without one).
+    enabled: false
+    retryIntervalSeconds: 60
+
+media:
+  enabled: false
+
+landing:
+  enabled: true
+  # STAGING: the title is the fastest way to see which server answered.
+  title: "Fanfares Blossom Server (staging)"
+
+report:
+  enabled: false
+
+dashboard:
+  enabled: false
