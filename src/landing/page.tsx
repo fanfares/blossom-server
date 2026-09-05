@@ -288,13 +288,16 @@ export const LandingPage: FC<LandingPageProps> = async (
                           <div class="flex flex-wrap items-center justify-between gap-3">
                             <div>
                               <a
-                                href={buildUrl("files", { q: blob.sha256 })}
+                                href={blobUrl(blob.sha256, blob.type, config)}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 class="font-mono text-sm text-white hover:text-cyan-100"
+                                title={`Open ${blob.sha256}`}
                               >
                                 {truncate(blob.sha256)}
                               </a>
                               <p class="mt-1 text-xs text-gray-500">
-                                Uploaded blob record
+                                Open blob in a new tab
                               </p>
                             </div>
                             <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400">
@@ -457,9 +460,11 @@ export const LandingPage: FC<LandingPageProps> = async (
                           <tr key={blob.sha256} class="hover:bg-white/[0.03]">
                             <td class="px-4 py-4 align-top">
                               <a
-                                href={buildUrl("files", { q: blob.sha256 })}
+                                href={blobUrl(blob.sha256, blob.type, config)}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 class="font-mono text-xs text-white hover:text-cyan-100"
-                                title={blob.sha256}
+                                title={`Open ${blob.sha256}`}
                               >
                                 {truncate(blob.sha256)}
                               </a>
@@ -652,7 +657,19 @@ export const LandingPage: FC<LandingPageProps> = async (
                               </span>
                             </td>
                             <td class="px-4 py-4 align-top font-mono text-xs text-gray-300">
-                              {user.blobs[0] ? truncate(user.blobs[0]) : "—"}
+                              {user.blobs[0]
+                                ? (
+                                  <a
+                                    href={blobUrl(user.blobs[0], null, config)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="text-white hover:text-cyan-100"
+                                    title={`Open ${user.blobs[0]}`}
+                                  >
+                                    {truncate(user.blobs[0])}
+                                  </a>
+                                )
+                                : "—"}
                             </td>
                             <td class="px-4 py-4 align-top">
                               <a
