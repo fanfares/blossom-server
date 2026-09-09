@@ -14,6 +14,7 @@ import { insertBlob, listAllBlobs } from "../../src/db/blobs.ts";
 import {
   eventIdentifierToFilter,
   extractEventBlobReferences,
+  groupBlobsByEvents,
 } from "../../src/admin/event-index.ts";
 
 Deno.test("event identifiers support hex, note, nevent, and naddr searches", () => {
@@ -51,9 +52,62 @@ Deno.test("event extraction keeps only this server and classifies each imeta", (
     ],
   } as NostrEvent;
   assertEquals(extractEventBlobReferences(event, "blossom.example"), [
-    { sha256: encryptedHash, encrypted: true },
-    { sha256: publicHash, encrypted: false },
+    {
+      sha256: encryptedHash,
+      encrypted: true,
+      name: undefined,
+      role: undefined,
+      chunkIndex: 1,
+      chunkCount: 1,
+    },
+    {
+      sha256: publicHash,
+      encrypted: false,
+      name: undefined,
+      role: "preview",
+      chunkIndex: 1,
+      chunkCount: 1,
+    },
   ]);
+});
+
+Deno.test("admin blobs group under events while unmatched uploads remain visible", () => {
+  const groupedHash = "a".repeat(64);
+  const otherHash = "b".repeat(64);
+  const owner = "c".repeat(64);
+  const makeBlob = (sha256: string, size: number) => ({
+    sha256,
+    size,
+    type: "application/octet-stream",
+    uploaded: 1_000,
+    owners: [owner],
+    events: [],
+  });
+  const event = {
+    id: "d".repeat(64),
+    sig: "e".repeat(128),
+    pubkey: owner,
+    kind: 30023,
+    created_at: 900,
+    content: "",
+    tags: [["title", "Grouped publication"], [
+      "imeta",
+      `url http://localhost:3001/${groupedHash}.bin`,
+      "name Chapter One",
+      "encrypted aes-256-gcm",
+    ]],
+  } as NostrEvent;
+
+  const result = groupBlobsByEvents(
+    [makeBlob(groupedHash, 42), makeBlob(otherHash, 7)],
+    [event],
+    "localhost:3001",
+  );
+  assertEquals(result.groups[0].title, "Grouped publication");
+  assertEquals(result.groups[0].totalSize, 42);
+  assertEquals(result.groups[0].encryptedCount, 1);
+  assertEquals(result.groups[0].blobs[0].reference.name, "Chapter One");
+  assertEquals(result.ungrouped.map((blob) => blob.sha256), [otherHash]);
 });
 
 Deno.test("admin blob queries search and filter persisted event relationships", async () => {

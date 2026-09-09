@@ -541,6 +541,20 @@ extension, then enters the configured password. It provides pages for:
 - **Rules** — view active storage retention rules
 - **Reports** — review and dismiss BUD-09 blob reports
 
+### Test uploads and the admin dashboard locally
+
+The moderation profile runs a disposable Blossom server on localhost with its
+own SQLite database and blob directory:
+
+```sh
+deno task dev:moderation
+```
+
+Then open `http://localhost:3001/admin` and use the local-only password
+`local-admin-only` after signing with an allowlisted Nostr browser extension.
+All uploads and moderation changes stay under `data/moderation-test/`; no remote
+database or Cloudflare storage is changed.
+
 ## Development
 
 ```sh
