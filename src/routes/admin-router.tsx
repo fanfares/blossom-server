@@ -137,8 +137,9 @@ export function buildAdminRouter(
 
   app.get("/users/:pubkey", (c) => {
     const pubkey = c.req.param("pubkey");
-    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
-    return c.html(<UserDetailPage db={dbHandle} pubkey={pubkey} page={page} />);
+    return c.html(
+      <UserDetailPage db={dbHandle} config={config} pubkey={pubkey} />,
+    );
   });
 
   app.get("/rules", (c) => {

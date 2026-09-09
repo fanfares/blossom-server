@@ -2,6 +2,8 @@ import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
+import { nip19 } from "nostr-tools";
+import { fetchOwnerEvents, groupBlobsByEvents } from "./event-index.ts";
 import {
   AdminLayout,
   Badge,
@@ -72,6 +74,16 @@ export const BlobsPage: FC<BlobsPageProps> = async (
     }),
     db.countBlobs(filter),
   ]);
+  const ownerPubkeys = blobs.flatMap((blob) => blob.owners);
+  const events = await fetchOwnerEvents(
+    ownerPubkeys,
+    config.dashboard.lookupRelays,
+  );
+  const grouped = groupBlobsByEvents(
+    blobs,
+    events,
+    config.publicDomain || host.split(":")[0],
+  );
 
   const baseParams = new URLSearchParams();
   if (q) baseParams.set("q", q);
@@ -191,6 +203,83 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         )
         : (
           <>
+            {grouped.groups.length > 0 && (
+              <section class="mb-6 space-y-4">
+                <div>
+                  <h2 class="text-lg font-semibold text-white">
+                    Published events
+                  </h2>
+                  <p class="mt-1 text-sm text-gray-500">
+                    Stored files grouped by signed Nostr event metadata.
+                  </p>
+                </div>
+                {grouped.groups.map((group) => (
+                  <article class="rounded-2xl border border-cyan-400/20 bg-white/[0.04] p-5">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 class="font-semibold text-cyan-50">
+                          {group.title}
+                        </h3>
+                        <p class="mt-1 text-sm text-gray-400">
+                          {formatBytes(group.totalSize)} · {group.blobs.length}
+                          {" "}
+                          stored file{group.blobs.length === 1 ? "" : "s"}
+                          {group.encryptedCount > 0
+                            ? ` · ${group.encryptedCount} encrypted`
+                            : ""} · published{" "}
+                          {formatDate(group.event.created_at)}
+                        </p>
+                      </div>
+                      <a
+                        href={`https://njump.me/${
+                          nip19.neventEncode({
+                            id: group.event.id,
+                            author: group.event.pubkey,
+                          })
+                        }`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-sm text-cyan-200/80 hover:text-cyan-100"
+                      >
+                        View event ↗
+                      </a>
+                    </div>
+                    <details class="mt-4 border-t border-white/10 pt-3">
+                      <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">
+                        File details
+                      </summary>
+                      <div class="mt-3 space-y-2">
+                        {group.blobs.map(({ blob, reference }) => (
+                          <div class="flex flex-wrap items-center gap-2 text-sm">
+                            <a
+                              href={`/admin/blobs/${blob.sha256}`}
+                              class="font-mono text-cyan-200/75 hover:text-cyan-100"
+                            >
+                              {reference.name || reference.role ||
+                                truncateHash(blob.sha256)}
+                            </a>
+                            <Badge
+                              color={reference.encrypted ? "yellow" : "green"}
+                            >
+                              {reference.encrypted ? "encrypted" : "public"}
+                            </Badge>
+                            <span class="text-gray-500">
+                              {formatBytes(blob.size)} ·{" "}
+                              {blob.type ?? "unknown"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  </article>
+                ))}
+              </section>
+            )}
+            {grouped.groups.length > 0 && (
+              <h2 class="mb-3 text-lg font-semibold text-white">
+                Other uploads
+              </h2>
+            )}
             <Table>
               <Thead>
                 <tr>
@@ -204,7 +293,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                 </tr>
               </Thead>
               <Tbody>
-                {blobs.map((blob) => {
+                {grouped.ungrouped.map((blob) => {
                   const blobUrl = getBlobUrl(
                     blob.sha256,
                     blob.type,

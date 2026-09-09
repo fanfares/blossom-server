@@ -1,0 +1,63 @@
+# Disposable local profile for testing uploads and the moderation dashboard.
+# Everything is bound to loopback and stored under data/moderation-test/.
+
+host: 127.0.0.1
+port: 3001
+publicDomain: "localhost:3001"
+
+database:
+  path: data/moderation-test/sqlite.db
+
+storage:
+  backend: local
+  local:
+    dir: ./data/moderation-test/blobs
+  removeWhenNoOwners: false
+  rules:
+    - type: "*"
+      expiration: 1 month
+
+upload:
+  enabled: true
+  requireAuth: true
+  workers: 0
+  requirePubkeyInRule: false
+
+mirror:
+  enabled: false
+  requireAuth: true
+
+delete:
+  requireAuth: true
+
+list:
+  enabled: true
+  requireAuth: false
+  allowListOthers: true
+
+paidStorage:
+  enabled: true
+  priceUsdCents: 100
+  priceSats: 10
+
+media:
+  enabled: false
+
+landing:
+  enabled: true
+  title: "Fanfares Blossom Moderation Test"
+
+report:
+  enabled: true
+
+dashboard:
+  enabled: true
+  password: "local-admin-only"
+  sessionSecret: "local-moderation-session-secret-2026"
+  adminPubkeys:
+    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+    - 29e1097c0905ffef6e970a20b1379fd12709f26b9cf93c027930a68cf2707351
+  lookupRelays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io
