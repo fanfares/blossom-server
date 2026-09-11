@@ -1,0 +1,77 @@
+host: 0.0.0.0
+port: 3000
+
+publicDomain: "${BLOSSOM_PUBLIC_DOMAIN}"
+
+database:
+  url: "${TURSO_DATABASE_URL}"
+  authToken: "${TURSO_AUTH_TOKEN}"
+
+storage:
+  backend: r2
+  r2:
+    accountId: "${CF_ACCOUNT_ID}"
+    bucket: "${R2_BUCKET}"
+    accessKey: "${R2_ACCESS_KEY_ID}"
+    secretKey: "${R2_SECRET_ACCESS_KEY}"
+    tmpDir: /tmp/blossom-r2-tmp
+
+upload:
+  enabled: true
+  requireAuth: true
+
+uploadAllowlist:
+  enabled: true
+  listPubkey: d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  relays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io
+  extraPubkeys:
+    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  refreshSeconds: 300
+  staleSeconds: 86400
+  timeoutMs: 5000
+
+mirror:
+  enabled: false
+  requireAuth: true
+
+delete:
+  requireAuth: true
+
+list:
+  enabled: true
+  requireAuth: false
+
+paidStorage:
+  enabled: true
+  priceSats: 5
+  maxDurationYears: 5
+  cashu:
+    mintUrl: https://mint.minibits.cash/Bitcoin
+  treasury:
+    enabled: true
+    lightningAddress: fanfares@rizful.com
+    retryIntervalSeconds: 60
+
+media:
+  enabled: false
+
+landing:
+  enabled: true
+  title: "Fanfares Blossom Server (staging admin preview)"
+
+report:
+  enabled: false
+
+dashboard:
+  enabled: true
+  password: "${BLOSSOM_ADMIN_PASSWORD}"
+  sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}"
+  adminPubkeys:
+    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  lookupRelays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io

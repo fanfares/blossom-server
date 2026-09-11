@@ -1,0 +1,57 @@
+{
+  // Standalone config for the isolated staging Worker.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "account_id": "4e84c1691dd1a8230152bfc2551cec85",
+  "name": "fanfares-blossom-server-staging",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-24",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "staging.blossom.fanfares.live",
+      "custom_domain": true
+    }
+  ],
+  "containers": [
+    {
+      "class_name": "BlossomAppContainer",
+      "image": "./Dockerfile.cloudflare.staging",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BLOSSOM_APP",
+        "class_name": "BlossomAppContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BlossomAppContainer"]
+    }
+  ],
+  "vars": {
+    "CF_ACCOUNT_ID": "4e84c1691dd1a8230152bfc2551cec85",
+    "R2_BUCKET": "ff-blossom-staging",
+    "BLOSSOM_PUBLIC_DOMAIN": "staging.blossom.fanfares.live"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "blossom_metadata",
+      "database_name": "blossom-metadata-staging",
+      "database_id": "7b062120-95d6-4b7b-b0e2-2a4d4cbfe6f7"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BLOSSOM_R2",
+      "bucket_name": "ff-blossom-staging"
+    }
+  ]
+}
