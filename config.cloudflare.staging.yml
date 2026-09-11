@@ -97,6 +97,8 @@ dashboard:
   sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}"
   adminPubkeys:
     - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+    - e8ed3798c6ffebffa08501ac39e271662bfd160f688f94c45d692d8767dd345a
+    - c6f7077f1699d50cf92a9652bfebffac05fc6842b9ee391089d959b8ad5d48fd
   lookupRelays:
     - wss://fanfares.nostr1.com
     - wss://relay.primal.net
