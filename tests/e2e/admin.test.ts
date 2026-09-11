@@ -93,6 +93,50 @@ Deno.test({
       const factorCookie = responseCookie(nostrResponse, ADMIN_FACTOR_COOKIE);
       assertEquals((await nostrResponse.json()).redirect, "/admin/password");
 
+      const proxiedConfig = ConfigSchema.parse({
+        publicDomain: "staging.blossom.example",
+        landing: { enabled: false },
+        dashboard: {
+          enabled: true,
+          password,
+          sessionSecret: "e2e-admin-session-secret-32-characters",
+          adminPubkeys: [pubkey],
+          lookupRelays: [],
+        },
+      });
+      const proxiedApp = await buildApp(db, storage, proxiedConfig);
+      const proxiedChallengeResponse = await proxiedApp.fetch(
+        new Request("http://container.internal/admin/auth/challenge"),
+      );
+      const proxiedChallengeCookie = responseCookie(
+        proxiedChallengeResponse,
+        ADMIN_CHALLENGE_COOKIE,
+      );
+      const proxiedTemplate = await proxiedChallengeResponse.json() as Omit<
+        NostrEvent,
+        "id" | "pubkey" | "sig"
+      >;
+      assertEquals(
+        proxiedTemplate.tags.some((tag) =>
+          tag[0] === "u" &&
+          tag[1] === "https://staging.blossom.example/admin/login"
+        ),
+        true,
+      );
+      const proxiedEvent = finalizeEvent(proxiedTemplate, secretKey);
+      const proxiedLoginResponse = await proxiedApp.fetch(
+        new Request("http://container.internal/admin/login", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: proxiedChallengeCookie,
+            origin: "https://staging.blossom.example",
+          },
+          body: JSON.stringify({ event: proxiedEvent }),
+        }),
+      );
+      assertEquals(proxiedLoginResponse.status, 200);
+
       const replayResponse = await app.fetch(
         new Request("http://localhost/admin/login", {
           method: "POST",
