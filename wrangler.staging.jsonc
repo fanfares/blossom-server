@@ -65,7 +65,8 @@
   "vars": {
     "CF_ACCOUNT_ID": "4e84c1691dd1a8230152bfc2551cec85",
     "R2_BUCKET": "ff-blossom-staging",
-    "BLOSSOM_PUBLIC_DOMAIN": "staging.blossom.fanfares.live"
+    "BLOSSOM_PUBLIC_DOMAIN": "staging.blossom.fanfares.live",
+    "BLOSSOM_CONTAINER_INSTANCE": "admin-origin-fix-v1"
     // BLOSSOM_ADMIN_PASSWORD stays a secret, never a var (an empty var
     // overwrites the secret on every deploy — vars and secrets share a
     // namespace).

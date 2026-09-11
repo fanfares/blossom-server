@@ -16,6 +16,7 @@ type Env = {
   BLOSSOM_ADMIN_PASSWORD?: string;
   BLOSSOM_ADMIN_SESSION_SECRET?: string;
   BLOSSOM_META_ADMIN_TOKEN?: string;
+  BLOSSOM_CONTAINER_INSTANCE?: string;
   BLOSSOM_APP: DurableObjectNamespace<BlossomAppContainer>;
 };
 
@@ -573,7 +574,9 @@ export default {
     if (metaResponse) return metaResponse;
 
     // Keep blob upload/download paths on the existing container runtime.
-    const container = env.BLOSSOM_APP.getByName("primary");
+    const container = env.BLOSSOM_APP.getByName(
+      env.BLOSSOM_CONTAINER_INSTANCE ?? "primary",
+    );
     await container.start();
     const response = await container.fetch(request);
 
