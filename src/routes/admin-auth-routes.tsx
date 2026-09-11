@@ -43,10 +43,24 @@ function cookieOptions(
   };
 }
 
+/** Returns the browser-visible origin, even when TLS terminates before the app container. */
+function getAdminOrigin(request: Request, publicDomain: string): string {
+  const configuredHost = publicDomain.replace(/^https?:\/\//, "").replace(
+    /\/$/,
+    "",
+  );
+  const hostname = configuredHost.split(":")[0].toLowerCase();
+  const isLocal = hostname === "localhost" || hostname === "127.0.0.1" ||
+    hostname === "::1";
+  return configuredHost && !isLocal
+    ? `https://${configuredHost}`
+    : new URL(request.url).origin;
+}
+
 /** Accepts explicit or browser-verified same-origin mutations while rejecting cross-site requests. */
-function hasValidOrigin(request: Request): boolean {
+function hasValidOrigin(request: Request, publicDomain: string): boolean {
   const origin = request.headers.get("origin");
-  const requestOrigin = new URL(request.url).origin;
+  const requestOrigin = getAdminOrigin(request, publicDomain);
   if (origin) return origin === requestOrigin;
 
   // Some browsers omit Origin on an ordinary same-origin HTML form POST. The
@@ -104,12 +118,16 @@ export function registerAdminAuthentication(app: Hono, config: Config): void {
       cookieOptions(c, CHALLENGE_SECONDS, config.publicDomain),
     );
     return c.json(
-      createAdminLoginTemplate(nonce, new URL(c.req.url).origin, now),
+      createAdminLoginTemplate(
+        nonce,
+        getAdminOrigin(c.req.raw, config.publicDomain),
+        now,
+      ),
     );
   });
 
   app.post("/login", async (c) => {
-    if (!hasValidOrigin(c.req.raw)) {
+    if (!hasValidOrigin(c.req.raw, config.publicDomain)) {
       return c.json({ error: "Invalid request origin." }, 403);
     }
     const challenge = await verifyAdminToken(
@@ -128,7 +146,7 @@ export function registerAdminAuthentication(app: Hono, config: Config): void {
       !verifyAdminLoginEvent(
         event,
         challenge.nonce,
-        new URL(c.req.url).origin,
+        getAdminOrigin(c.req.raw, config.publicDomain),
         config.dashboard.adminPubkeys,
       ) ||
       !consumeChallenge(challenge.nonce, challenge.exp)
@@ -165,7 +183,9 @@ export function registerAdminAuthentication(app: Hono, config: Config): void {
   });
 
   app.post("/password", async (c) => {
-    if (!hasValidOrigin(c.req.raw)) return c.text("Forbidden", 403);
+    if (!hasValidOrigin(c.req.raw, config.publicDomain)) {
+      return c.text("Forbidden", 403);
+    }
     const factor = await verifyAdminToken(
       getCookie(c, ADMIN_FACTOR_COOKIE),
       "nostr-factor",
@@ -237,7 +257,8 @@ export function registerAdminAuthentication(app: Hono, config: Config): void {
         : c.redirect("/admin/login", 303);
     }
     if (
-      !hasValidOrigin(c.req.raw) && c.req.method !== "GET" &&
+      !hasValidOrigin(c.req.raw, config.publicDomain) &&
+      c.req.method !== "GET" &&
       c.req.method !== "HEAD"
     ) {
       return c.json({ error: "Invalid request origin." }, 403);
