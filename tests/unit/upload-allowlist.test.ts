@@ -9,7 +9,7 @@
  *   - A failed refresh serves the stale list within staleSeconds
  *   - Beyond staleSeconds, and with no cache at all, writes fail closed (503)
  *   - Enabled without a listPubkey fails closed rather than allowing writes
- *   - Contact-list parsing takes p tags from the newest event; empty is an error
+ *   - Contact-list parsing takes p tags from the newest event; a valid empty list revokes members
  * @dependencies none; fetcher and clock are injected
  * @type unit | deno
  */
@@ -226,4 +226,52 @@ Deno.test("contact-list parsing requires configuration", async () => {
       {} as any,
     )
   );
+});
+
+Deno.test("contact lists reject forged signatures, wrong authors, and wrong kinds; signed empty lists revoke", async () => {
+  const { finalizeEvent, generateSecretKey } = await import("nostr-tools/pure");
+  const { from } = await import("rxjs");
+  const secret = generateSecretKey();
+  const now = Math.floor(Date.now() / 1000);
+  const valid = finalizeEvent({
+    kind: 3,
+    created_at: now - 1,
+    content: "",
+    tags: [["p", ALICE]],
+  }, secret);
+  const forged = JSON.parse(
+    JSON.stringify({ ...valid, created_at: now, tags: [["p", BOB]] }),
+  );
+  const otherAuthor = finalizeEvent({
+    kind: 3,
+    created_at: now,
+    content: "",
+    tags: [["p", BOB]],
+  }, generateSecretKey());
+  const otherKind = finalizeEvent({
+    kind: 1,
+    created_at: now,
+    content: "",
+    tags: [["p", BOB]],
+  }, secret);
+  const empty = finalizeEvent({
+    kind: 3,
+    created_at: now,
+    content: "",
+    tags: [],
+  }, secret);
+  const pool = (events: unknown[]) =>
+    ({ request: () => from(events) }) as unknown as Parameters<
+      typeof fetchContactListPubkeys
+    >[1];
+  const config = makeConfig({ listPubkey: valid.pubkey });
+  const members = await fetchContactListPubkeys(
+    config,
+    pool([valid, forged, otherAuthor, otherKind]),
+  );
+  assertEquals([...members], [ALICE]);
+  assertEquals([
+    ...(await fetchContactListPubkeys(config, pool([valid, empty]))),
+  ], []);
+  await assertRejects(() => fetchContactListPubkeys(config, pool([forged])));
 });

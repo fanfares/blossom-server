@@ -20,6 +20,7 @@ import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
+import { isBlobDeleted } from "../storage/deletion.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -61,6 +62,9 @@ export function buildBlobsRouter(
     if (!SHA256_RE.test(hash)) {
       return next();
     }
+    if (await isBlobDeleted(db, hash)) {
+      return errorResponse(ctx, 404, "Blob not found");
+    }
 
     // Optional auth enforcement for private blobs (config-gated, not implemented in v1)
     // BUD-11: servers MAY require auth for GET — we make it configurable
@@ -101,7 +105,13 @@ export function buildBlobsRouter(
       "Cache-Control": "public, max-age=31536000, immutable",
       ETag: `"${hash}"`,
       "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
+      "Content-Security-Policy":
+        "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'",
+      "X-Content-Type-Options": "nosniff",
     };
+    if (/^(text\/html|application\/xhtml\+xml)(?:;|$)/i.test(mimeType)) {
+      headers["Content-Disposition"] = `attachment; filename="${hash}.html"`;
+    }
     if (resolvedSize !== null) {
       headers["Content-Length"] = String(resolvedSize);
     }
@@ -115,11 +125,8 @@ export function buildBlobsRouter(
         t.trim().replace(/^"(.*)"$/, "$1")
       );
       if (tags.includes(hash) || tags.includes("*")) {
-        return ctx.body(null, 304, {
-          ETag: headers["ETag"],
-          "Cache-Control": headers["Cache-Control"],
-          "Last-Modified": headers["Last-Modified"],
-        });
+        const { "Content-Length": _length, ...conditionalHeaders } = headers;
+        return ctx.body(null, 304, conditionalHeaders);
       }
     }
 

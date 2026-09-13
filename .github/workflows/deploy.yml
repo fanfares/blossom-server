@@ -69,6 +69,32 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
+        with:
+          deno-version: "2.7.12"
+
+      - name: Check release candidate
+        run: |
+          deno install --frozen
+          deno fmt --check
+          deno lint
+          deno check main.ts
+          deno test --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-sys tests/unit/ tests/e2e/
+          deno task build
+
+      - name: Embed source revision in Worker and container
+        env:
+          RELEASE_REVISION: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          revision = os.environ["RELEASE_REVISION"]
+          if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
+              raise SystemExit("Invalid release revision")
+          Path("src/build-info.ts").write_text('export const BUILD_REVISION = "' + revision + '";\n')
+          PY
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -100,5 +126,9 @@ jobs:
           done
           [ "$code" = "200" ] || { echo "::error::$host did not come up (last status $code)"; exit 1; }
           acct=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$host/storage/account" || true)
+          revision=$(curl -sI --max-time 30 "https://$host/storage/account" | tr -d '\r' | awk 'tolower($1) == "x-blossom-revision:" {print $2}')
+          [ "$revision" = "${{ github.sha }}" ] || { echo "::error::served container revision $revision differs from ${{ github.sha }}"; exit 1; }
+          worker_revision=$(curl -fsS --max-time 30 "https://$host/__meta/stats" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deployProbe", ""))')
+          [ "$worker_revision" = "${{ github.sha }}" ] || { echo "::error::served Worker revision $worker_revision differs from ${{ github.sha }}"; exit 1; }
           echo "GET /storage/account -> $acct"
           [ "$acct" = "401" ] || { echo "::error::expected 401 from /storage/account, got $acct"; exit 1; }

@@ -1,3 +1,4 @@
+import { createWriteSession } from "./write-session.ts";
 import { S3Client } from "@bradenmacdonald/s3-lite-client";
 import { join } from "@std/path";
 import { ulid } from "@std/ulid";
@@ -179,36 +180,8 @@ export class S3Storage implements IBlobStorage {
    * Begin a write session. The body is written to local disk only.
    * Zero bytes are sent to S3 until commitWrite() is called.
    */
-  async beginWrite(sizeHint: number | null): Promise<WriteSession> {
-    const path = this.tmpPath(ulid());
-
-    const file = await Deno.open(path, {
-      write: true,
-      create: true,
-      truncate: true,
-    });
-
-    const writable = file.writable;
-
-    // done resolves when the writable stream is closed (file fully written).
-    const done: Promise<void> =
-      (writable as WritableStream & { closed?: Promise<void> }).closed ??
-        new Promise<void>((resolve) => {
-          const interval = setInterval(async () => {
-            try {
-              const stat = await Deno.stat(path);
-              if (sizeHint !== null && stat.size >= sizeHint) {
-                clearInterval(interval);
-                resolve();
-              }
-            } catch {
-              clearInterval(interval);
-              resolve();
-            }
-          }, 100);
-        });
-
-    return { tmpPath: path, writable, done };
+  async beginWrite(_sizeHint: number | null): Promise<WriteSession> {
+    return await createWriteSession(this.tmpPath(ulid()));
   }
 
   /**
@@ -223,6 +196,7 @@ export class S3Storage implements IBlobStorage {
     hash: string,
     ext: string,
   ): Promise<void> {
+    await session.dispose?.();
     await this._uploadToS3AndCleanup(session.tmpPath, hash, ext);
   }
 
@@ -231,6 +205,7 @@ export class S3Storage implements IBlobStorage {
    * Nothing is sent to or removed from S3.
    */
   async abortWrite(session: WriteSession): Promise<void> {
+    await session.dispose?.();
     await Deno.remove(session.tmpPath).catch(() => {});
   }
 

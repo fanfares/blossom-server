@@ -443,3 +443,28 @@ Deno.test("parseAuthEvent: server tag with full URL value matches bare domain â†
   const result = parseAuthEvent(encodeEvent(event), "cdn.example.com");
   assertEquals(result.id, event.id);
 });
+
+Deno.test("parseAuthEvent: malformed and duplicate expiration tags cannot create indefinite auth", () => {
+  const future = String(Math.floor(Date.now() / 1000) + 600);
+  for (
+    const value of [
+      "NaN",
+      "",
+      "Infinity",
+      future + "garbage",
+      "9007199254740993",
+      "-1",
+      "1.5",
+    ]
+  ) {
+    const event = makeEvent({ tags: [["t", "upload"], ["expiration", value]] });
+    assertThrows(() => parseAuthEvent(encodeEvent(event), null), HTTPException);
+  }
+  const duplicate = makeEvent({
+    tags: [["t", "upload"], ["expiration", future], ["expiration", future]],
+  });
+  assertThrows(
+    () => parseAuthEvent(encodeEvent(duplicate), null),
+    HTTPException,
+  );
+});

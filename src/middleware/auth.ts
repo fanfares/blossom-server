@@ -81,6 +81,16 @@ export function parseAuthEvent(
     });
   }
 
+  if (
+    !auth || typeof auth !== "object" || !Array.isArray(auth.tags) ||
+    !auth.tags.every((tag) =>
+      Array.isArray(tag) && tag.every((value) => typeof value === "string")
+    ) ||
+    !Number.isSafeInteger(auth.created_at) || auth.created_at < 0
+  ) {
+    throw new HTTPException(400, { message: "Invalid auth event fields" });
+  }
+
   // BUD-11 validation
   if (auth.kind !== 24242) {
     throw new HTTPException(400, { message: "Auth event must be kind 24242" });
@@ -92,18 +102,26 @@ export function parseAuthEvent(
     });
   }
 
-  const expiration = auth.tags.find((t) => t[0] === "expiration")?.[1];
+  const expirationTags = auth.tags.filter((t) => t[0] === "expiration");
+  const expiration = expirationTags[0]?.[1];
   if (!expiration) {
     throw new HTTPException(400, {
       message: "Auth event missing expiration tag",
     });
   }
-  if (parseInt(expiration, 10) < now) {
+  if (
+    expirationTags.length !== 1 || !/^\d+$/.test(expiration) ||
+    !Number.isSafeInteger(Number(expiration))
+  ) {
+    throw new HTTPException(400, { message: "Invalid auth expiration tag" });
+  }
+  if (Number(expiration) <= now) {
     throw new HTTPException(401, { message: "Auth token expired" });
   }
 
-  const tTag = auth.tags.find((t) => t[0] === "t")?.[1];
-  if (!tTag) {
+  const tTags = auth.tags.filter((t) => t[0] === "t");
+  const tTag = tTags[0]?.[1];
+  if (!tTag || tTags.length !== 1) {
     throw new HTTPException(400, { message: "Auth event missing t tag" });
   }
 
@@ -158,9 +176,8 @@ export function authMiddleware(
         ctx.set("authType", auth.tags.find((t) => t[0] === "t")?.[1]);
         ctx.set(
           "authExpiration",
-          parseInt(
+          Number(
             auth.tags.find((t) => t[0] === "expiration")?.[1] ?? "0",
-            10,
           ),
         );
       } catch (err) {

@@ -1,3 +1,8 @@
+import {
+  consumePaymentRateLimit,
+  type PersistPayment,
+  withPaymentOperation,
+} from "../payments/operation-lock.ts";
 import type { Client } from "@libsql/client";
 import { ulid } from "@std/ulid";
 import type { PaidStorageConfig } from "../config/schema.ts";
@@ -34,6 +39,7 @@ import {
   clearTreasuryMelt,
   completeTreasuryTransfer,
   listDueTreasuryTransferIds,
+  renewTreasuryLease,
   retryTreasuryTransfer,
   saveTreasuryClaim,
   saveTreasuryMelt,
@@ -129,6 +135,27 @@ export class PaidStorageService {
     durationYears = 1,
     alignExpiry = false,
   ): Promise<StoragePurchaseRecord> {
+    return await withPaymentOperation(
+      this.db,
+      `checkout:${pubkey}`,
+      (persist) =>
+        this.createPurchase(
+          pubkey,
+          storageUnits,
+          durationYears,
+          alignExpiry,
+          persist,
+        ),
+    );
+  }
+
+  private async createPurchase(
+    pubkey: string,
+    storageUnits: number,
+    durationYears: number,
+    alignExpiry: boolean,
+    persist: PersistPayment,
+  ): Promise<StoragePurchaseRecord> {
     if (!this.enabled) throw new Error("Paid storage is disabled");
     const now = this.now();
     const preview = await this.previewPurchase(
@@ -179,6 +206,7 @@ export class PaidStorageService {
     }
 
     await this.assertOpenPurchaseCapacity(pubkey, now);
+    await consumePaymentRateLimit(this.db, "quote", pubkey);
     const quote = await this.payments.createQuote(
       amountSats,
       "Fanfares Blossom: " + storageUnits + " storage unit" +
@@ -205,16 +233,23 @@ export class PaidStorageService {
       baseAmountSats: preview.baseAmountSats,
       alignmentAmountSats: preview.alignmentAmountSats,
     };
-    if (preview.alignExpiry) {
-      await insertStorageAlignedPurchase(
-        this.db,
-        purchase,
-        preview.targetExpiresAt,
-        preview.grantChanges,
-      );
-    } else {
-      await insertStoragePurchase(this.db, purchase);
-    }
+    await persist(async (db) => {
+      if (preview.alignExpiry) {
+        await insertStorageAlignedPurchase(
+          db,
+          purchase,
+          preview.targetExpiresAt,
+          preview.grantChanges,
+        );
+      } else {
+        await insertStoragePurchase(db, purchase);
+      }
+      await db.execute({
+        sql:
+          "INSERT INTO storage_purchase_providers (purchase_id, mint_url) VALUES (?, ?)",
+        args: [purchase.id, this.config.cashu.mintUrl],
+      });
+    });
     return purchase;
   }
 
@@ -300,6 +335,18 @@ export class PaidStorageService {
     pubkey: string,
     durationYears: number,
   ): Promise<StoragePurchaseRecord> {
+    return await withPaymentOperation(
+      this.db,
+      `checkout:${pubkey}`,
+      (persist) => this.createExtension(pubkey, durationYears, persist),
+    );
+  }
+
+  private async createExtension(
+    pubkey: string,
+    durationYears: number,
+    persist: PersistPayment,
+  ): Promise<StoragePurchaseRecord> {
     if (!this.enabled) throw new Error("Paid storage is disabled");
     if (
       !Number.isInteger(durationYears) || durationYears < 1 ||
@@ -345,6 +392,7 @@ export class PaidStorageService {
     );
     if (existing) return existing;
     await this.assertOpenPurchaseCapacity(pubkey, now);
+    await consumePaymentRateLimit(this.db, "quote", pubkey);
     const quote = await this.payments.createQuote(
       amountSats,
       "Fanfares Blossom: extend " + storageUnits + " storage unit" +
@@ -371,7 +419,14 @@ export class PaidStorageService {
       baseAmountSats: amountSats,
       alignmentAmountSats: 0,
     };
-    await insertStorageExtensionPurchase(this.db, purchase, targets);
+    await persist(async (db) => {
+      await insertStorageExtensionPurchase(db, purchase, targets);
+      await db.execute({
+        sql:
+          "INSERT INTO storage_purchase_providers (purchase_id, mint_url) VALUES (?, ?)",
+        args: [purchase.id, this.config.cashu.mintUrl],
+      });
+    });
     return purchase;
   }
 
@@ -400,6 +455,8 @@ export class PaidStorageService {
     const purchase = await getStoragePurchase(this.db, id, pubkey);
     if (!purchase || purchase.state !== "pending") return purchase;
 
+    await this.assertPurchaseProvider(purchase.id);
+    await consumePaymentRateLimit(this.db, "verify", pubkey);
     let providerStatus;
     try {
       providerStatus = await this.payments.checkQuote(
@@ -561,6 +618,8 @@ export class PaidStorageService {
       600,
     );
     if (!claimed) return;
+    const renewLease = () =>
+      renewTreasuryLease(this.db, purchaseId, claimed.leaseToken, this.now());
     if (claimed.attemptCount >= TREASURY_ATTEMPT_ALERT_THRESHOLD) {
       console.error(
         `[treasury] ALERT: payout for ${purchaseId} is on attempt ` +
@@ -569,27 +628,31 @@ export class PaidStorageService {
       );
     }
     try {
+      await this.assertPurchaseProvider(purchaseId);
       let mintPreviewJson = claimed.mintPreviewJson;
       if (!mintPreviewJson) {
+        await renewLease();
         mintPreviewJson = await this.treasury.prepareClaim(
           claimed.grossAmountSats,
           await this.providerQuoteIdForPurchase(purchaseId),
         );
         await saveTreasuryClaim(this.db, purchaseId, this.now(), {
           mintPreviewJson,
-        });
+        }, claimed.leaseToken);
       }
 
       let proofsJson = claimed.proofsJson;
       if (!proofsJson) {
+        await renewLease();
         proofsJson = await this.treasury.completeClaim(mintPreviewJson);
         await saveTreasuryClaim(this.db, purchaseId, this.now(), {
           proofsJson,
-        });
+        }, claimed.leaseToken);
       }
 
       let meltPreviewJson = claimed.meltPreviewJson;
       if (!meltPreviewJson) {
+        await renewLease();
         const prepared = await this.treasury.preparePayout(
           proofsJson,
           claimed.destination,
@@ -603,18 +666,28 @@ export class PaidStorageService {
           meltPreviewJson,
           prepared.forwardedAmountSats,
           prepared.feeReserveSats,
+          claimed.leaseToken,
         );
       }
 
       let completed;
       try {
+        await renewLease();
         completed = await this.treasury.completePayout(meltPreviewJson);
       } catch (error) {
-        await this.discardTerminallyFailedMelt(purchaseId, meltPreviewJson);
+        await this.discardTerminallyFailedMelt(
+          purchaseId,
+          meltPreviewJson,
+          claimed.leaseToken,
+        );
         throw error;
       }
       if (!completed.paid) {
-        await this.discardTerminallyFailedMelt(purchaseId, meltPreviewJson);
+        await this.discardTerminallyFailedMelt(
+          purchaseId,
+          meltPreviewJson,
+          claimed.leaseToken,
+        );
         throw new Error(
           "Cashu mint reports the treasury payment is still pending",
         );
@@ -625,6 +698,7 @@ export class PaidStorageService {
         this.now(),
         completed.changeProofsJson,
         completed.paymentPreimage,
+        claimed.leaseToken,
       );
       console.log(
         `[treasury] Forwarded storage purchase ${purchaseId} to ${claimed.destination}`,
@@ -637,6 +711,7 @@ export class PaidStorageService {
         claimed.attemptCount,
         this.now(),
         message,
+        claimed.leaseToken,
       );
       throw error;
     }
@@ -651,6 +726,7 @@ export class PaidStorageService {
   private async discardTerminallyFailedMelt(
     purchaseId: string,
     meltPreviewJson: string,
+    leaseToken: string,
   ): Promise<void> {
     let terminal = false;
     try {
@@ -659,7 +735,7 @@ export class PaidStorageService {
       return;
     }
     if (!terminal) return;
-    await clearTreasuryMelt(this.db, purchaseId, this.now());
+    await clearTreasuryMelt(this.db, purchaseId, this.now(), leaseToken);
     console.warn(
       `[treasury] Discarded expired payout attempt for ${purchaseId}; ` +
         "a fresh invoice will be prepared on the next sweep",
@@ -677,6 +753,30 @@ export class PaidStorageService {
     });
     if (!result.rows[0]) throw new Error("Treasury purchase no longer exists");
     return String(result.rows[0][0]);
+  }
+
+  private async assertPurchaseProvider(purchaseId: string): Promise<void> {
+    const result = await this.db.execute({
+      sql:
+        "SELECT mint_url FROM storage_purchase_providers WHERE purchase_id = ?",
+      args: [purchaseId],
+    });
+    if (result.rows.length === 0) {
+      // Pre-migration quotes belong to the original configured provider. Refuse
+      // a silent mint rotation rather than claiming them at an unrelated mint.
+      await this.db.execute({
+        sql:
+          "INSERT OR IGNORE INTO storage_purchase_providers (purchase_id, mint_url) VALUES (?, ?)",
+        args: [purchaseId, this.config.cashu.legacyMintUrl],
+      });
+      if (this.config.cashu.mintUrl !== this.config.cashu.legacyMintUrl) {
+        throw new Error("Legacy purchase needs explicit provider migration");
+      }
+    } else if (String(result.rows[0][0]) !== this.config.cashu.mintUrl) {
+      throw new Error(
+        "Purchase belongs to a different Cashu mint; drain or migrate it before rotating providers",
+      );
+    }
   }
 
   private get treasuryDestination(): string | undefined {

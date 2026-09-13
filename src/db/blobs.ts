@@ -59,6 +59,10 @@ export async function insertBlob(
         sql: `INSERT OR REPLACE INTO accessed (blob, timestamp) VALUES (?, ?)`,
         args: [blob.sha256, blob.uploaded],
       },
+      {
+        sql: "DELETE FROM blob_deletions WHERE sha256 = ?",
+        args: [blob.sha256],
+      },
     ],
     "write",
   );
@@ -239,6 +243,7 @@ export async function getBlobsForPrune(
   db: Client,
   typePattern: string,
   pubkeys?: string[],
+  sha256?: string,
 ): Promise<BlobPruneRecord[]> {
   let sql: string;
   let args: (string | number)[];
@@ -262,6 +267,11 @@ export async function getBlobsForPrune(
       WHERE b.type LIKE ?
     `;
     args = [typePattern];
+  }
+
+  if (sha256) {
+    sql += " AND b.sha256 = ?";
+    args.push(sha256);
   }
 
   const rs = await db.execute({ sql, args });
