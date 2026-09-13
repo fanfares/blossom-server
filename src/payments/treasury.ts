@@ -1,13 +1,16 @@
 import {
   type MeltPreview,
+  type MeltQuoteBolt11Response,
   type MintPreview,
   OutputData,
   type OutputDataLike,
   type Proof,
+  type SerializedBlindedSignature,
   Wallet,
 } from "@cashu/cashu-ts";
 import { decodeBase64, encodeBase64 } from "@std/encoding/base64";
 import { fetchPublicHttpUrl } from "../utils/public-http.ts";
+import { readBoundedJson } from "../utils/http-body.ts";
 import { withPaymentTimeout } from "./timeout.ts";
 
 export interface PreparedTreasuryPayout {
@@ -67,12 +70,47 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
 
   async completeClaim(mintPreviewJson: string): Promise<string> {
     const wallet = await this.getWallet();
-    const proofs = await withPaymentTimeout(
-      wallet.completeMint(deserializeMintPreview(mintPreviewJson)),
-      this.operationTimeoutMs,
-      "Cashu treasury claim completion",
-    );
-    return JSON.stringify(proofs);
+    const preview = deserializeMintPreview(mintPreviewJson);
+    try {
+      const proofs = await withPaymentTimeout(
+        wallet.completeMint(preview),
+        this.operationTimeoutMs,
+        "Cashu treasury claim completion",
+      );
+      return JSON.stringify(proofs);
+    } catch (claimError) {
+      // A mint may issue proofs even when the response is lost. Restore the
+      // original blinded outputs; never generate new secrets for this quote.
+      const restored = await withPaymentTimeout(
+        wallet.mint.restore({
+          outputs: preview.outputData.map((output) => output.blindedMessage),
+        }),
+        this.operationTimeoutMs,
+        "Cashu treasury claim recovery",
+      );
+      if (
+        restored.outputs.length !== preview.outputData.length ||
+        restored.signatures.length !== restored.outputs.length
+      ) throw claimError;
+      const originals = new Map(
+        preview.outputData.map((output) => [output.blindedMessage.B_, output]),
+      );
+      const proofs = restored.outputs.map((output, index) => {
+        const original = originals.get(output.B_);
+        const signature = restored.signatures[index];
+        if (
+          !original || output.amount !== original.blindedMessage.amount ||
+          signature.amount !== original.blindedMessage.amount ||
+          signature.id !== preview.keysetId
+        ) {
+          throw new Error("Mint returned invalid restored outputs");
+        }
+        originals.delete(output.B_);
+        return original.toProof(signature, wallet.getKeyset(preview.keysetId));
+      });
+      if (originals.size) throw claimError;
+      return JSON.stringify(proofs);
+    }
   }
 
   async preparePayout(
@@ -141,17 +179,123 @@ export class CashuTreasuryForwarder implements TreasuryForwarder {
     meltPreviewJson: string,
   ): Promise<CompletedTreasuryPayout> {
     const wallet = await this.getWallet();
-    const result = await withPaymentTimeout(
-      wallet.completeMelt(deserializeMeltPreview(meltPreviewJson)),
-      this.operationTimeoutMs,
-      "Cashu treasury melt completion",
+    const preview = deserializeMeltPreview(meltPreviewJson);
+    const check = () =>
+      withPaymentTimeout(
+        wallet.checkMeltQuoteBolt11(preview.quote.quote),
+        this.operationTimeoutMs,
+        "Cashu treasury melt recovery status",
+      );
+    const status = await check();
+    if (String(status.state).toUpperCase() === "PAID") {
+      return await this.recoverPaidPayout(wallet, preview, status);
+    }
+    if (String(status.state).toUpperCase() === "PENDING") {
+      return { paid: false, changeProofsJson: "[]", paymentPreimage: null };
+    }
+    if (String(status.state).toUpperCase() !== "UNPAID") {
+      throw new Error("Invalid melt quote state");
+    }
+    try {
+      const result = await withPaymentTimeout(
+        wallet.completeMelt(preview),
+        this.operationTimeoutMs,
+        "Cashu treasury melt completion",
+      );
+      return {
+        paid: String(result.quote.state).toUpperCase() === "PAID",
+        changeProofsJson: JSON.stringify(result.change),
+        paymentPreimage: result.quote.payment_preimage ?? null,
+      };
+    } catch (meltError) {
+      const recovered = await check();
+      if (String(recovered.state).toUpperCase() !== "PAID") throw meltError;
+      return await this.recoverPaidPayout(wallet, preview, recovered);
+    }
+  }
+
+  private async recoverPaidPayout(
+    wallet: Wallet,
+    preview: MeltPreview,
+    status: MeltQuoteBolt11Response,
+  ): Promise<CompletedTreasuryPayout> {
+    if (
+      status.quote !== preview.quote.quote ||
+      status.amount !== preview.quote.amount || status.unit !== "sat"
+    ) {
+      throw new Error("Mint returned mismatched paid quote");
+    }
+    let change: Proof[];
+    if (status.change !== undefined) {
+      if (status.change.length > preview.outputData.length) {
+        throw new Error("Too many change signatures");
+      }
+      change = status.change.map((signature, index) =>
+        this.unblindChange(
+          wallet,
+          preview,
+          preview.outputData[index],
+          signature,
+        )
+      );
+    } else {
+      // Some mints omit change on a paid quote response. NUT-09 recovery is
+      // keyed by the exact original blank outputs rather than their order.
+      const restored = await withPaymentTimeout(
+        wallet.mint.restore({
+          outputs: preview.outputData.map((output) => output.blindedMessage),
+        }),
+        this.operationTimeoutMs,
+        "Cashu treasury change recovery",
+      );
+      if (restored.outputs.length !== restored.signatures.length) {
+        throw new Error("Invalid restored change");
+      }
+      const originals = new Map(
+        preview.outputData.map((output) => [output.blindedMessage.B_, output]),
+      );
+      change = restored.outputs.map((output, index) => {
+        const original = originals.get(output.B_);
+        if (!original || output.amount !== restored.signatures[index].amount) {
+          throw new Error("Invalid restored change output");
+        }
+        originals.delete(output.B_);
+        return this.unblindChange(
+          wallet,
+          preview,
+          original,
+          restored.signatures[index],
+        );
+      });
+    }
+    const total = change.reduce((sum, proof) => sum + proof.amount, 0);
+    const available = preview.inputs.reduce(
+      (sum, proof) => sum + proof.amount,
+      0,
     );
-    const state = String(result.quote.state).toUpperCase();
+    if (!Number.isSafeInteger(total) || total > available - status.amount) {
+      throw new Error("Invalid change amount");
+    }
     return {
-      paid: state === "PAID",
-      changeProofsJson: JSON.stringify(result.change),
-      paymentPreimage: result.quote.payment_preimage ?? null,
+      paid: true,
+      changeProofsJson: JSON.stringify(change),
+      paymentPreimage: status.payment_preimage ?? null,
     };
+  }
+
+  private unblindChange(
+    wallet: Wallet,
+    preview: MeltPreview,
+    output: OutputDataLike,
+    signature: SerializedBlindedSignature,
+  ): Proof {
+    if (
+      signature.id !== preview.keysetId ||
+      !Number.isSafeInteger(signature.amount) || signature.amount <= 0
+    ) {
+      throw new Error("Invalid change signature");
+    }
+    return output.toProof(signature, wallet.getKeyset(preview.keysetId));
   }
 
   /**
@@ -212,11 +356,12 @@ async function resolveLightningAddress(
     connectTimeoutMs: 10_000,
   });
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
     throw new Error(
       `Lightning Address metadata returned HTTP ${response.status}`,
     );
   }
-  const body = await response.json() as Record<string, unknown>;
+  const body = await readBoundedJson(response);
   const callback = new URL(String(body.callback ?? ""));
   if (callback.protocol !== "https:") {
     throw new Error("Lightning Address callback must use HTTPS");
@@ -225,7 +370,9 @@ async function resolveLightningAddress(
   const maxSendableMsats = Number(body.maxSendable);
   if (
     !Number.isSafeInteger(minSendableMsats) ||
-    !Number.isSafeInteger(maxSendableMsats)
+    !Number.isSafeInteger(maxSendableMsats) ||
+    minSendableMsats <= 0 || maxSendableMsats < minSendableMsats ||
+    body.tag !== "payRequest"
   ) {
     throw new Error("Lightning Address returned invalid payment limits");
   }
@@ -255,11 +402,12 @@ async function requestLightningInvoice(
     connectTimeoutMs: 10_000,
   });
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
     throw new Error(
       `Lightning Address invoice callback returned HTTP ${response.status}`,
     );
   }
-  const body = await response.json() as Record<string, unknown>;
+  const body = await readBoundedJson(response);
   if (body.status === "ERROR") {
     throw new Error(
       `Lightning Address rejected payout: ${

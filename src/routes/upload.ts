@@ -429,6 +429,7 @@ export function buildUploadRouter(
       session.tmpPath,
       contentLength,
       xSha256,
+      config.upload.maxSize,
     );
     if (!jobPromise) {
       // Race condition: another request claimed the last worker between

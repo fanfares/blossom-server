@@ -5,6 +5,7 @@
  * and redirects are followed manually so each destination is revalidated.
  */
 
+import { fetchPinnedHttp } from "./pinned-http.ts";
 import {
   isBlockedNetworkHostname,
   isIpAddressHostname,
@@ -25,7 +26,7 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 export interface PublicHttpFetchOptions {
   /** Maximum time to wait for headers from each origin or redirect hop. */
   connectTimeoutMs: number;
-  /** Fetch implementation supplied by tests; production uses the Deno global. */
+  /** Fetch implementation supplied by tests; production pins the validated DNS addresses. */
   fetcher?: HttpFetcher;
   /** DNS resolver supplied by tests; production uses Cloudflare DNS-over-HTTPS. */
   resolver?: HostnameResolver;
@@ -48,10 +49,17 @@ export async function assertPublicHttpUrl(
   url: URL,
   resolver: HostnameResolver = resolveHostnameWithDoh,
 ): Promise<void> {
+  await resolvePublicAddresses(url, resolver);
+}
+
+async function resolvePublicAddresses(
+  url: URL,
+  resolver: HostnameResolver,
+): Promise<string[]> {
   assertPublicHttpUrlSyntax(url);
 
   const normalized = url.hostname.replace(/^\[|\]$/g, "");
-  if (isIpAddressHostname(normalized)) return;
+  if (isIpAddressHostname(normalized)) return [normalized];
 
   const answers = await resolver(normalized);
   if (answers.length === 0) {
@@ -66,6 +74,7 @@ export async function assertPublicHttpUrl(
       );
     }
   }
+  return answers;
 }
 
 /**
@@ -140,13 +149,14 @@ export async function fetchPublicHttpUrl(
   initialUrl: URL,
   options: PublicHttpFetchOptions,
 ): Promise<Response> {
-  const fetcher = options.fetcher ?? fetch;
   const resolver = options.resolver ?? resolveHostnameWithDoh;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   let currentUrl = initialUrl;
 
   for (let redirects = 0;; redirects += 1) {
-    await assertPublicHttpUrl(currentUrl, resolver);
+    const addresses = await resolvePublicAddresses(currentUrl, resolver);
+    const fetcher: HttpFetcher = options.fetcher ??
+      ((url, init) => fetchPinnedHttp(new URL(String(url)), addresses, init));
     const response = await fetchWithHeaderTimeout(
       currentUrl,
       options.connectTimeoutMs,

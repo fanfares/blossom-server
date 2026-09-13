@@ -20,7 +20,7 @@ import type { StorageRule } from "../config/schema.ts";
 import type { IBlobStorage } from "../storage/interface.ts";
 import {
   countOwners,
-  deleteBlob,
+  getBlob,
   getBlobsForPrune,
   getOwnerlessBlobSha256s,
 } from "../db/blobs.ts";
@@ -28,6 +28,8 @@ import { mimeToExt } from "../utils/mime.ts";
 import { mimeToSqlLike, parseDuration } from "./rules.ts";
 import { hasActivePaidOwner } from "../db/paid-storage.ts";
 import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
+
+import { deleteStoredBlob, retryBlobDeletions } from "../storage/deletion.ts";
 
 export interface PruneResult {
   /** Total blobs removed (DB row + physical file) this run. */
@@ -50,6 +52,12 @@ export async function pruneStorage(
 ): Promise<PruneResult> {
   let deleted = 0;
   let errors = 0;
+  try {
+    await retryBlobDeletions(db, storage);
+  } catch (error) {
+    errors++;
+    console.warn("[prune] Failed to retry physical deletions:", error);
+  }
 
   // Tracks sha256 hashes processed in this run to avoid double-deletion when
   // multiple rules overlap (e.g. "image/*" and "*" could match the same blob).
@@ -100,9 +108,22 @@ export async function pruneStorage(
             // A paid grant promises retention through its own expiry even when a
             // generic MIME/access rule would otherwise prune the blob sooner.
             if (await hasActivePaidOwner(db, row.sha256, now)) return;
-            const ext = mimeToExt(row.type);
-            if (!(await deleteBlob(db, row.sha256))) return;
-            await storage.remove(row.sha256, ext);
+            const current = (await getBlobsForPrune(
+              db,
+              typePattern,
+              rule.pubkeys,
+              row.sha256,
+            ))[0];
+            if (
+              !current ||
+              (current.accessed ?? current.uploaded) >= cutoffSeconds
+            ) return;
+            await deleteStoredBlob(
+              db,
+              storage,
+              row.sha256,
+              mimeToExt(current.type),
+            );
             deleted++;
           });
         } catch (err) {
@@ -135,9 +156,14 @@ export async function pruneStorage(
           // The ownerless query is a snapshot; re-check after acquiring the
           // hash lock so a concurrent deduplicated upload cannot be deleted.
           if ((await countOwners(db, row.sha256)) > 0) return;
-          const ext = mimeToExt(row.type);
-          if (!(await deleteBlob(db, row.sha256))) return;
-          await storage.remove(row.sha256, ext); // fixes legacy bug: file was never removed
+          const current = await getBlob(db, row.sha256);
+          if (!current) return;
+          await deleteStoredBlob(
+            db,
+            storage,
+            row.sha256,
+            mimeToExt(current.type),
+          );
           deleted++;
         });
       } catch (err) {

@@ -624,6 +624,7 @@ export async function renewStorageReservation(
     sql: `UPDATE upload_reservations
           SET size_bytes = ?, expires_at = ?
           WHERE id = ? AND pubkey = ?
+            AND expires_at > ?
             AND ? <=
               COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0)
               - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0)
@@ -633,6 +634,7 @@ export async function renewStorageReservation(
       input.expiresAt,
       input.id,
       input.pubkey,
+      input.now,
       input.sizeBytes,
       input.pubkey,
       input.now,

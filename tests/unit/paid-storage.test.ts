@@ -649,7 +649,11 @@ Deno.test("treasury discards a terminally failed melt and pays out with a fresh 
 
     // Wait for the fire-and-forget immediate attempt to fail and release.
     let transfer = await readTransfer();
-    for (let i = 0; i < 40 && transfer.state !== "pending"; i += 1) {
+    for (
+      let i = 0;
+      i < 100 && (treasury.prepareCalls === 0 || transfer.state !== "pending");
+      i += 1
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 5));
       transfer = await readTransfer();
     }

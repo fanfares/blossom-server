@@ -25,7 +25,7 @@ import type { Client } from "@libsql/client";
 import type { IBlobStorage } from "../storage/interface.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
-import { deleteBlob, getBlob, listBlobsByPubkeyAdmin } from "../db/blobs.ts";
+import { getBlob, listBlobsByPubkeyAdmin } from "../db/blobs.ts";
 import { deleteReport, deleteReportsByBlob, getReport } from "../db/reports.ts";
 import { DirectDbHandle } from "../db/direct.ts";
 import { BlobsPage } from "../admin/blobs-page.tsx";
@@ -35,6 +35,8 @@ import { UserDetailPage } from "../admin/user-detail-page.tsx";
 import { RulesPage } from "../admin/rules-page.tsx";
 import { ReportsPage } from "../admin/reports-page.tsx";
 import { ReportDetailPage } from "../admin/report-detail-page.tsx";
+import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
+import { deleteStoredBlob } from "../storage/deletion.ts";
 import { lookupRelays$ } from "../admin/nostr-profile.ts";
 
 export function buildAdminRouter(
@@ -59,6 +61,24 @@ export function buildAdminRouter(
       password: config.dashboard.password,
     }),
   );
+
+  // Basic Auth may be cached by browsers; reject cross-origin mutations.
+  app.use("*", async (c, next) => {
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      const configured = config.publicDomain;
+      const expected = configured
+        ? new URL(
+          configured.includes("://") ? configured : `https://${configured}`,
+        ).origin
+        : new URL(c.req.url).origin;
+      if (c.req.header("origin") !== expected) {
+        return c.json({ error: "Invalid request origin" }, 403);
+      }
+    }
+    c.header("cache-control", "no-store");
+    c.header("x-frame-options", "DENY");
+    await next();
+  });
 
   // ── SSR pages ───────────────────────────────────────────────────────────────
 
@@ -121,19 +141,12 @@ export function buildAdminRouter(
   // DELETE /api/blobs/:sha256 — force-delete a blob and its file
   app.delete("/api/blobs/:sha256", async (c) => {
     const sha256 = c.req.param("sha256");
-    const blob = await getBlob(db, sha256);
-    const ext = blob ? mimeToExt(blob.type) : "";
-
-    await deleteBlob(db, sha256);
-
-    await storage
-      .remove(sha256, ext)
-      .catch((err) =>
-        console.warn(
-          `[admin] Failed to remove blob ${sha256} from storage:`,
-          err,
-        )
-      );
+    await withBlobMutationLock(sha256, async () => {
+      const blob = await getBlob(db, sha256);
+      if (blob) {
+        await deleteStoredBlob(db, storage, sha256, mimeToExt(blob.type));
+      }
+    });
 
     return c.json({ success: true }, 200);
   });
@@ -147,16 +160,17 @@ export function buildAdminRouter(
 
     let deleted = 0;
     for (const blob of blobs) {
-      const ext = mimeToExt(blob.type);
-      await deleteBlob(db, blob.sha256);
-      await storage
-        .remove(blob.sha256, ext)
-        .catch((err) =>
-          console.warn(
-            `[admin] Failed to remove blob ${blob.sha256} from storage:`,
-            err,
-          )
-        );
+      await withBlobMutationLock(blob.sha256, async () => {
+        const current = await getBlob(db, blob.sha256);
+        if (current) {
+          await deleteStoredBlob(
+            db,
+            storage,
+            blob.sha256,
+            mimeToExt(current.type),
+          );
+        }
+      });
       deleted++;
     }
 
@@ -183,21 +197,13 @@ export function buildAdminRouter(
     if (!report) return c.json({ error: "Report not found" }, 404);
 
     const blobHash = report.blob;
-    const blob = await getBlob(db, blobHash);
-    const ext = blob ? mimeToExt(blob.type) : "";
-
-    await deleteBlob(db, blobHash);
-
-    await storage
-      .remove(blobHash, ext)
-      .catch((err) =>
-        console.warn(
-          `[admin] Failed to remove blob ${blobHash} from storage:`,
-          err,
-        )
-      );
-
-    await deleteReportsByBlob(db, blobHash);
+    await withBlobMutationLock(blobHash, async () => {
+      const blob = await getBlob(db, blobHash);
+      if (blob) {
+        await deleteStoredBlob(db, storage, blobHash, mimeToExt(blob.type));
+      }
+      await deleteReportsByBlob(db, blobHash);
+    });
 
     return c.json({ success: true }, 200);
   });

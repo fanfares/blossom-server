@@ -1,3 +1,4 @@
+import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
 /**
  * BUD-04: PUT /mirror — Mirror a blob from a remote URL
  *
@@ -317,6 +318,7 @@ export function buildMirrorRouter(
       session.tmpPath,
       contentLength,
       null,
+      config.upload.maxSize,
     );
     if (!jobPromise) {
       // Race: another request claimed the last worker between step 6 and now.
@@ -402,75 +404,77 @@ export function buildMirrorRouter(
 
     const ext = mimeToExt(mimeType);
 
-    // --- 14. Dedup guard ---
-    if (await hasBlob(db, hash)) {
-      await storage.abortWrite(session).catch(() => {});
-      const existing = await getBlob(db, hash);
-      if (existing) {
-        debug(
-          debugPrefix,
-          `dedup hit — returning existing blob ${hash.slice(0, 8)}`,
-        );
-        if (auth && !(await isOwner(db, hash, auth.pubkey))) {
-          await insertBlob(db, existing, auth.pubkey);
+    return await withBlobMutationLock(hash, async () => {
+      // --- 14. Dedup guard ---
+      if (await hasBlob(db, hash)) {
+        await storage.abortWrite(session).catch(() => {});
+        const existing = await getBlob(db, hash);
+        if (existing) {
+          debug(
+            debugPrefix,
+            `dedup hit — returning existing blob ${hash.slice(0, 8)}`,
+          );
+          if (auth && !(await isOwner(db, hash, auth.pubkey))) {
+            await insertBlob(db, existing, auth.pubkey);
+          }
+          const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+          return ctx.json(
+            {
+              url: getBlobUrl(existing.sha256, existing.type, baseUrl),
+              sha256: existing.sha256,
+              size: existing.size,
+              type: existing.type ?? "application/octet-stream",
+              uploaded: existing.uploaded,
+            } satisfies BlobDescriptor,
+          );
         }
-        const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
-        return ctx.json(
-          {
-            url: getBlobUrl(existing.sha256, existing.type, baseUrl),
-            sha256: existing.sha256,
-            size: existing.size,
-            type: existing.type ?? "application/octet-stream",
-            uploaded: existing.uploaded,
-          } satisfies BlobDescriptor,
-        );
       }
-    }
 
-    // --- 15. Commit: move verified tmp file to final storage location ---
-    // For local: atomic rename. For S3: stream to bucket, delete local tmp.
-    debug(debugPrefix, `commitWrite start hash=${hash} ext=${ext}`);
-    const t2 = Date.now();
-    try {
-      await storage.commitWrite(session, hash, ext);
-      const t3 = Date.now();
-      debug(debugPrefix, `commitWrite complete elapsed=${t3 - t2}ms`);
-    } catch (err) {
-      await storage.abortWrite(session).catch(() => {});
-      throw err;
-    }
+      // --- 15. Commit: move verified tmp file to final storage location ---
+      // For local: atomic rename. For S3: stream to bucket, delete local tmp.
+      debug(debugPrefix, `commitWrite start hash=${hash} ext=${ext}`);
+      const t2 = Date.now();
+      try {
+        await storage.commitWrite(session, hash, ext);
+        const t3 = Date.now();
+        debug(debugPrefix, `commitWrite complete elapsed=${t3 - t2}ms`);
+      } catch (err) {
+        await storage.abortWrite(session).catch(() => {});
+        throw err;
+      }
 
-    // --- 16. Insert metadata ---
-    const now = Math.floor(Date.now() / 1000);
-    const blobRecord = {
-      sha256: hash,
-      size,
-      type: mimeType !== "application/octet-stream" ? mimeType : null,
-      uploaded: now,
-    };
-    debug(debugPrefix, `insertBlob start hash=${hash}`);
-    const t4 = Date.now();
-    await insertBlob(db, blobRecord, auth?.pubkey ?? "anonymous");
-    const t5 = Date.now();
-    debug(debugPrefix, `insertBlob complete elapsed=${t5 - t4}ms`);
-
-    // --- 17. Return BlobDescriptor ---
-    debug(
-      debugPrefix,
-      `mirror complete — ${hash} (${size} bytes, ${
-        blobRecord.type ?? "application/octet-stream"
-      })`,
-    );
-    const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
-    return ctx.json(
-      {
-        url: getBlobUrl(hash, blobRecord.type, baseUrl),
+      // --- 16. Insert metadata ---
+      const now = Math.floor(Date.now() / 1000);
+      const blobRecord = {
         sha256: hash,
         size,
-        type: blobRecord.type ?? "application/octet-stream",
+        type: mimeType !== "application/octet-stream" ? mimeType : null,
         uploaded: now,
-      } satisfies BlobDescriptor,
-    );
+      };
+      debug(debugPrefix, `insertBlob start hash=${hash}`);
+      const t4 = Date.now();
+      await insertBlob(db, blobRecord, auth?.pubkey ?? "anonymous");
+      const t5 = Date.now();
+      debug(debugPrefix, `insertBlob complete elapsed=${t5 - t4}ms`);
+
+      // --- 17. Return BlobDescriptor ---
+      debug(
+        debugPrefix,
+        `mirror complete — ${hash} (${size} bytes, ${
+          blobRecord.type ?? "application/octet-stream"
+        })`,
+      );
+      const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+      return ctx.json(
+        {
+          url: getBlobUrl(hash, blobRecord.type, baseUrl),
+          sha256: hash,
+          size,
+          type: blobRecord.type ?? "application/octet-stream",
+          uploaded: now,
+        } satisfies BlobDescriptor,
+      );
+    });
   });
 
   return app;

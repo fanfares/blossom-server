@@ -21,6 +21,8 @@ export interface WriteSession {
    * internally for commitWrite / abortWrite cleanup.
    */
   tmpPath: string;
+  /** Release adapter resources after direct worker writes or aborts. */
+  dispose?: () => Promise<void>;
 }
 
 export interface IBlobStorage {
@@ -97,6 +99,6 @@ export interface IBlobStorage {
    */
   commitFile(srcPath: string, hash: string, ext: string): Promise<void>;
 
-  /** Removes a blob from storage. Returns true if it existed. */
+  /** Idempotently removes a blob. Returns true when deletion succeeded or the object was already absent; false on failure. */
   remove(hash: string, ext: string): Promise<boolean>;
 }

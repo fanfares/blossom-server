@@ -239,6 +239,9 @@ paidStorage:
   # persistent remote database for Cloudflare Containers.
   cashu:
     mintUrl: https://mint.minibits.cash/Bitcoin
+    # Original mint for purchases created before provider identity was stored.
+    # Set this to the existing mint when upgrading a custom-mint deployment.
+    legacyMintUrl: https://mint.minibits.cash/Bitcoin
 
   # Once Cashu verifies the customer's invoice, mint the settled value and
   # forward it (less Lightning routing fees) to the operator wallet.

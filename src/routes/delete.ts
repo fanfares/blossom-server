@@ -14,18 +14,15 @@
 import { Hono } from "@hono/hono";
 import type { Client } from "@libsql/client";
 import type { IBlobStorage } from "../storage/interface.ts";
-import {
-  countOwners,
-  deleteBlob,
-  getBlob,
-  isOwner,
-  removeOwner,
-} from "../db/blobs.ts";
+import { countOwners, getBlob, isOwner, removeOwner } from "../db/blobs.ts";
 import { requireAuth, requireXTag } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import type { Config } from "../config/schema.ts";
+
+import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
+import { deleteStoredBlob } from "../storage/deletion.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -46,51 +43,56 @@ export function buildDeleteRouter(
       return errorResponse(ctx, 400, "Invalid sha256 hash");
     }
 
-    // Look up the blob before auth so we can return 404 early if it doesn't exist
-    const blob = await getBlob(db, hash);
-    if (!blob) {
-      return errorResponse(ctx, 404, "Blob not found");
-    }
-
-    // Auth enforcement
-    let pubkey: string | null = null;
-    if (config.delete.requireAuth) {
-      const auth = requireAuth(ctx, "delete");
-      pubkey = auth.pubkey;
-
-      // BUD-11: the delete auth event must include the blob hash in an x tag
-      requireXTag(auth, hash);
-
-      // Ownership check — only owners may delete their copy of a blob
-      if (!(await isOwner(db, hash, pubkey))) {
-        return errorResponse(ctx, 403, "You are not an owner of this blob");
+    return await withBlobMutationLock(hash, async () => {
+      // Look up the blob before auth so we can return 404 early if it doesn't exist
+      const blob = await getBlob(db, hash);
+      if (!blob) {
+        return errorResponse(ctx, 404, "Blob not found");
       }
-    }
 
-    const ext = mimeToExt(blob.type);
+      // Auth enforcement
+      let pubkey: string | null = null;
+      if (config.delete.requireAuth) {
+        const auth = requireAuth(ctx, "delete");
+        pubkey = auth.pubkey;
 
-    if (pubkey !== null) {
-      // Remove only this pubkey's ownership record
-      await removeOwner(db, hash, pubkey);
+        // BUD-11: the delete auth event must include the blob hash in an x tag
+        requireXTag(auth, hash);
 
-      // Check whether any other owners remain
-      const remaining = await countOwners(db, hash);
-
-      if (remaining > 0) {
-        // Other owners still hold references — leave the blob in place
-        return ctx.body(null, 204);
+        // Ownership check — only owners may delete their copy of a blob
+        if (!(await isOwner(db, hash, pubkey))) {
+          return errorResponse(ctx, 403, "You are not an owner of this blob");
+        }
       }
-    }
 
-    // No owners left (or unauthenticated delete) — purge the blob entirely
-    await deleteBlob(db, hash);
+      const ext = mimeToExt(blob.type);
 
-    // Remove from storage backend (best-effort — DB record is the source of truth)
-    await storage.remove(hash, ext).catch((err) =>
-      console.warn(`Failed to remove blob ${hash} from storage:`, err)
-    );
+      if (pubkey !== null) {
+        // Remove only this pubkey's ownership record
+        await removeOwner(db, hash, pubkey);
 
-    return ctx.body(null, 204);
+        // Check whether any other owners remain
+        const remaining = await countOwners(db, hash);
+
+        if (remaining > 0) {
+          // Other owners still hold references — leave the blob in place
+          return ctx.body(null, 204);
+        }
+      }
+
+      try {
+        await deleteStoredBlob(db, storage, hash, ext);
+      } catch (err) {
+        console.error("Physical blob deletion pending:", err);
+        return errorResponse(
+          ctx,
+          502,
+          "Blob hidden; physical deletion pending retry",
+        );
+      }
+
+      return ctx.body(null, 204);
+    });
   });
 
   return app;

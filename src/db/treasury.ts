@@ -13,6 +13,7 @@ export interface TreasuryTransferRecord {
   attemptCount: number;
   nextAttemptAt: number;
   leaseUntil: number;
+  leaseToken: string;
 }
 
 /** Maps a libSQL result row into the durable treasury transfer used by the retry worker. */
@@ -32,12 +33,14 @@ function rowToTransfer(
     attemptCount: Number(row[9]),
     nextAttemptAt: Number(row[10]),
     leaseUntil: Number(row[11]),
+    leaseToken: String(row[12]),
   };
 }
 
 const TRANSFER_COLUMNS = `purchase_id, destination, gross_amount_sats, state,
   mint_preview_json, proofs_json, melt_preview_json, forwarded_amount_sats,
-  fee_reserve_sats, attempt_count, next_attempt_at, lease_until`;
+  fee_reserve_sats, attempt_count, next_attempt_at, lease_until,
+  (SELECT token FROM treasury_lease_tokens t WHERE t.purchase_id = storage_treasury_transfers.purchase_id)`;
 
 /** Lists due outbox IDs for the treasury sweep invoked by the server retry loop. */
 export async function listDueTreasuryTransferIds(
@@ -62,20 +65,38 @@ export async function claimTreasuryTransfer(
   now: number,
   leaseSeconds: number,
 ): Promise<TreasuryTransferRecord | null> {
-  const claimed = await db.execute({
-    sql: `UPDATE storage_treasury_transfers
-          SET state = 'processing', lease_until = ?, attempt_count = attempt_count + 1, updated_at = ?
-          WHERE purchase_id = ? AND state != 'paid' AND next_attempt_at <= ?
-            AND (state = 'pending' OR lease_until <= ?)`,
-    args: [now + leaseSeconds, now, purchaseId, now, now],
-  });
-  if (claimed.rowsAffected !== 1) return null;
-  const result = await db.execute({
-    sql:
-      `SELECT ${TRANSFER_COLUMNS} FROM storage_treasury_transfers WHERE purchase_id = ?`,
-    args: [purchaseId],
-  });
-  return result.rows[0] ? rowToTransfer(result.rows[0]) : null;
+  const token = crypto.randomUUID();
+  const tx = await db.transaction("write");
+  try {
+    const claimed = await tx.execute({
+      sql: `UPDATE storage_treasury_transfers
+            SET state = 'processing', lease_until = ?, attempt_count = attempt_count + 1, updated_at = ?
+            WHERE purchase_id = ? AND state != 'paid' AND next_attempt_at <= ?
+              AND (state = 'pending' OR lease_until <= ?)`,
+      args: [now + leaseSeconds, now, purchaseId, now, now],
+    });
+    if (claimed.rowsAffected !== 1) {
+      await tx.rollback();
+      return null;
+    }
+    await tx.execute({
+      sql:
+        "INSERT OR REPLACE INTO treasury_lease_tokens (purchase_id, token) VALUES (?, ?)",
+      args: [purchaseId, token],
+    });
+    const result = await tx.execute({
+      sql:
+        `SELECT ${TRANSFER_COLUMNS} FROM storage_treasury_transfers WHERE purchase_id = ?`,
+      args: [purchaseId],
+    });
+    await tx.commit();
+    return result.rows[0] ? rowToTransfer(result.rows[0]) : null;
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  } finally {
+    tx.close();
+  }
 }
 
 /** Persists replay-safe Cashu claim data immediately before or after minting proofs. */
@@ -84,19 +105,24 @@ export async function saveTreasuryClaim(
   purchaseId: string,
   now: number,
   input: { mintPreviewJson?: string; proofsJson?: string },
+  leaseToken: string,
 ): Promise<void> {
-  await db.execute({
+  const result = await db.execute({
     sql: `UPDATE storage_treasury_transfers SET
             mint_preview_json = COALESCE(?, mint_preview_json),
             proofs_json = COALESCE(?, proofs_json), updated_at = ?
-          WHERE purchase_id = ? AND state = 'processing'`,
+          WHERE purchase_id = ? AND state = 'processing' AND lease_until > ?
+            AND EXISTS (SELECT 1 FROM treasury_lease_tokens t WHERE t.purchase_id = storage_treasury_transfers.purchase_id AND t.token = ?)`,
     args: [
       input.mintPreviewJson ?? null,
       input.proofsJson ?? null,
       now,
       purchaseId,
+      now,
+      leaseToken,
     ],
   });
+  if (result.rowsAffected !== 1) throw new Error("Treasury lease lost");
 }
 
 /** Persists a replay-safe Lightning melt preview before the treasury invoice is paid. */
@@ -107,19 +133,24 @@ export async function saveTreasuryMelt(
   meltPreviewJson: string,
   forwardedAmountSats: number,
   feeReserveSats: number,
+  leaseToken: string,
 ): Promise<void> {
-  await db.execute({
+  const result = await db.execute({
     sql: `UPDATE storage_treasury_transfers SET melt_preview_json = ?,
             forwarded_amount_sats = ?, fee_reserve_sats = ?, updated_at = ?
-          WHERE purchase_id = ? AND state = 'processing'`,
+          WHERE purchase_id = ? AND state = 'processing' AND lease_until > ?
+            AND EXISTS (SELECT 1 FROM treasury_lease_tokens t WHERE t.purchase_id = storage_treasury_transfers.purchase_id AND t.token = ?)`,
     args: [
       meltPreviewJson,
       forwardedAmountSats,
       feeReserveSats,
       now,
       purchaseId,
+      now,
+      leaseToken,
     ],
   });
+  if (result.rowsAffected !== 1) throw new Error("Treasury lease lost");
 }
 
 /** Marks a treasury payout complete after the Cashu mint reports the Lightning invoice paid. */
@@ -129,13 +160,24 @@ export async function completeTreasuryTransfer(
   now: number,
   changeProofsJson: string,
   paymentPreimage: string | null,
+  leaseToken: string,
 ): Promise<void> {
-  await db.execute({
+  const result = await db.execute({
     sql: `UPDATE storage_treasury_transfers SET state = 'paid', lease_until = 0,
             change_proofs_json = ?, payment_preimage = ?, last_error = NULL,
-            updated_at = ?, forwarded_at = ? WHERE purchase_id = ?`,
-    args: [changeProofsJson, paymentPreimage, now, now, purchaseId],
+            updated_at = ?, forwarded_at = ? WHERE purchase_id = ? AND state = 'processing' AND lease_until > ?
+            AND EXISTS (SELECT 1 FROM treasury_lease_tokens t WHERE t.purchase_id = storage_treasury_transfers.purchase_id AND t.token = ?)`,
+    args: [
+      changeProofsJson,
+      paymentPreimage,
+      now,
+      now,
+      purchaseId,
+      now,
+      leaseToken,
+    ],
   });
+  if (result.rowsAffected !== 1) throw new Error("Treasury lease lost");
 }
 
 /**
@@ -148,13 +190,16 @@ export async function clearTreasuryMelt(
   db: Client,
   purchaseId: string,
   now: number,
+  leaseToken: string,
 ): Promise<void> {
-  await db.execute({
+  const result = await db.execute({
     sql: `UPDATE storage_treasury_transfers SET melt_preview_json = NULL,
             forwarded_amount_sats = NULL, fee_reserve_sats = NULL, updated_at = ?
-          WHERE purchase_id = ? AND state = 'processing'`,
-    args: [now, purchaseId],
+          WHERE purchase_id = ? AND state = 'processing' AND lease_until > ?
+            AND EXISTS (SELECT 1 FROM treasury_lease_tokens t WHERE t.purchase_id = storage_treasury_transfers.purchase_id AND t.token = ?)`,
+    args: [now, purchaseId, now, leaseToken],
   });
+  if (result.rowsAffected !== 1) throw new Error("Treasury lease lost");
 }
 
 /** Releases a failed payout attempt with capped exponential backoff for a later server sweep. */
@@ -164,12 +209,31 @@ export async function retryTreasuryTransfer(
   attemptCount: number,
   now: number,
   error: string,
+  leaseToken: string,
 ): Promise<void> {
   const delay = Math.min(3600, 30 * 2 ** Math.min(attemptCount - 1, 7));
-  await db.execute({
+  const result = await db.execute({
     sql:
       `UPDATE storage_treasury_transfers SET state = 'pending', lease_until = 0,
-            next_attempt_at = ?, last_error = ?, updated_at = ? WHERE purchase_id = ? AND state != 'paid'`,
-    args: [now + delay, error.slice(0, 1000), now, purchaseId],
+            next_attempt_at = ?, last_error = ?, updated_at = ? WHERE purchase_id = ? AND state = 'processing' AND lease_until > ?
+            AND EXISTS (SELECT 1 FROM treasury_lease_tokens t WHERE t.purchase_id = storage_treasury_transfers.purchase_id AND t.token = ?)`,
+    args: [now + delay, error.slice(0, 1000), now, purchaseId, now, leaseToken],
   });
+  if (result.rowsAffected !== 1) throw new Error("Treasury lease lost");
+}
+
+/** Renew only a still-live owned lease before initiating each external step. */
+export async function renewTreasuryLease(
+  db: Client,
+  purchaseId: string,
+  token: string,
+  now: number,
+): Promise<void> {
+  const result = await db.execute({
+    sql: `UPDATE storage_treasury_transfers SET lease_until = ?, updated_at = ?
+          WHERE purchase_id = ? AND state = 'processing' AND lease_until > ?
+            AND EXISTS (SELECT 1 FROM treasury_lease_tokens t WHERE t.purchase_id = storage_treasury_transfers.purchase_id AND t.token = ?)`,
+    args: [now + 600, now, purchaseId, now, token],
+  });
+  if (result.rowsAffected !== 1) throw new Error("Treasury lease lost");
 }

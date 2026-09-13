@@ -1,7 +1,8 @@
+import { BUILD_REVISION } from "../src/build-info.ts";
 import { Container } from "@cloudflare/containers";
 
 const HEX_64_RE = /^[a-f0-9]{64}$/;
-const DEPLOY_PROBE = "cd-check-2026-06-12-b";
+const DEPLOY_PROBE = BUILD_REVISION;
 
 type Env = {
   CF_ACCOUNT_ID: string;

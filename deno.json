@@ -43,5 +43,6 @@
     "zod": "npm:zod@^4.3.6"
   },
   "allowScripts": ["npm:sharp@0.34.5"],
-  "exclude": ["src/landing/client"]
+  "exclude": ["src/landing/client"],
+  "nodeModulesDir": "auto"
 }

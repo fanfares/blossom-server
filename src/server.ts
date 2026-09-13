@@ -3,6 +3,7 @@
  * Called once at startup with a fully-loaded config.
  */
 
+import { BUILD_REVISION } from "./build-info.ts";
 import { Hono } from "@hono/hono";
 import { serveStatic } from "@hono/hono/deno";
 import type { Client } from "@libsql/client";
@@ -37,6 +38,11 @@ export async function buildApp(
   // HTTPException (e.g. basicAuth's WWW-Authenticate header). Blossom-specific
   // X-Reason formatting is handled by the Blossom sub-app's own onError.
   app.onError(onError);
+
+  app.use("*", async (c, next) => {
+    c.header("X-Blossom-Revision", BUILD_REVISION);
+    await next();
+  });
 
   // Request/response logging
   app.use("*", requestLogger);

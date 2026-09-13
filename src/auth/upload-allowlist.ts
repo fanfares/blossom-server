@@ -19,7 +19,8 @@
 
 import { HTTPException } from "@hono/hono/http-exception";
 import { RelayPool } from "applesauce-relay";
-import { lastValueFrom, timeout as rxTimeout, toArray } from "rxjs";
+import { lastValueFrom, take, timeout as rxTimeout, toArray } from "rxjs";
+import { verifyEvent } from "nostr-tools/pure";
 import type { Config, UploadAllowlistConfig } from "../config/schema.ts";
 import { debug } from "../middleware/debug.ts";
 
@@ -44,10 +45,8 @@ interface CachedList {
  * Reads a kind:3 contact list from relays and returns the pubkeys it follows.
  *
  * Only `p` tags are counted, per NIP-02. The newest event wins when relays
- * disagree. An empty result is treated as a failure rather than an empty
- * allowlist, because a successful fetch of a genuinely empty list and a
- * partial/garbled response are indistinguishable here, and the empty reading
- * would lock out every user.
+ * disagree. A valid signed empty list revokes membership; an absent or invalid
+ * response fails closed instead of becoming authorization data.
  *
  * @param config Allowlist configuration supplying curator pubkey, relays and timeout.
  * @param pool Relay pool used to issue the request.
@@ -70,11 +69,26 @@ export async function fetchContactListPubkeys(
         kinds: [3],
         authors: [config.listPubkey],
       })
-      .pipe(rxTimeout(config.timeoutMs), toArray()),
+      .pipe(rxTimeout(config.timeoutMs), take(1001), toArray()),
   );
+
+  if (events.length > 1000) {
+    throw new Error("contact-list response exceeded the event limit");
+  }
+  const now = Math.floor(Date.now() / 1000);
 
   let newest: { created_at: number; tags: string[][] } | undefined;
   for (const event of events) {
+    try {
+      if (
+        event.kind !== 3 || event.pubkey !== config.listPubkey.toLowerCase() ||
+        !Number.isSafeInteger(event.created_at) || event.created_at < 0 ||
+        event.created_at > now + 60 ||
+        !verifyEvent(event)
+      ) continue;
+    } catch {
+      continue;
+    }
     if (!newest || event.created_at > newest.created_at) newest = event;
   }
 
@@ -84,13 +98,9 @@ export async function fetchContactListPubkeys(
 
   const pubkeys = new Set<string>();
   for (const tag of newest.tags) {
-    if (tag[0] === "p" && typeof tag[1] === "string" && tag[1].length > 0) {
+    if (tag[0] === "p" && /^[0-9a-f]{64}$/i.test(tag[1] ?? "")) {
       pubkeys.add(tag[1].toLowerCase());
     }
-  }
-
-  if (pubkeys.size === 0) {
-    throw new Error("contact list contained no p tags");
   }
 
   return pubkeys;
