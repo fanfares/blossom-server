@@ -2,7 +2,7 @@
 # Run with `deno task dev:local`; no secrets or production storage are used.
 port: 3001
 host: 0.0.0.0
-publicDomain: "localhost"
+publicDomain: "localhost:3001"
 
 database:
   path: data/sqlite.db
