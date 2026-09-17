@@ -121,19 +121,9 @@ const pool = initPool(
 );
 console.log(`  Workers:  ${pool.size} upload workers`);
 
-// Resolve admin dashboard password (auto-generate if blank).
-// The password is used directly by Hono's basicAuth middleware in the admin router.
+// Report admin readiness. Configuration validation has already required a
+// strong explicit password and at least one allowlisted Nostr public key.
 if (config.dashboard.enabled) {
-  if (!config.dashboard.password) {
-    // Generate a random 20-char alphanumeric password and patch config in memory
-    const bytes = new Uint8Array(15);
-    crypto.getRandomValues(bytes);
-    const generated = btoa(String.fromCharCode(...bytes))
-      .replace(/[+/=]/g, "")
-      .slice(0, 20);
-    config.dashboard.password = generated;
-    console.log(`  Admin:    password auto-generated: ${generated}`);
-  }
   console.log("  Admin:    ready");
 }
 
@@ -245,7 +235,7 @@ const server = Deno.serve(
       console.log(
         "  Admin:   dashboard              " +
           (config.dashboard.enabled
-            ? `ready (user=${config.dashboard.username}) — http://${hostname}:${port}/admin`
+            ? `ready (${config.dashboard.adminPubkeys.length} Nostr admin key(s)) — http://${hostname}:${port}/admin`
             : "disabled"),
       );
     },

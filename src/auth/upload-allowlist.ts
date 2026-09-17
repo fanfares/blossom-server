@@ -19,7 +19,15 @@
 
 import { HTTPException } from "@hono/hono/http-exception";
 import { RelayPool } from "applesauce-relay";
-import { lastValueFrom, timeout as rxTimeout, toArray } from "rxjs";
+import { verifyEvent } from "nostr-tools/pure";
+import type { NostrEvent } from "nostr-tools";
+import {
+  filter,
+  lastValueFrom,
+  take,
+  timeout as rxTimeout,
+  toArray,
+} from "rxjs";
 import type { Config, UploadAllowlistConfig } from "../config/schema.ts";
 import { debug } from "../middleware/debug.ts";
 
@@ -39,6 +47,10 @@ interface CachedList {
   pubkeys: Set<string>;
   fetchedAtMs: number;
 }
+
+const HEX_PUBKEY_RE = /^[0-9a-f]{64}$/i;
+const MAX_RELAY_EVENTS = 256;
+const MAX_EVENT_FUTURE_DRIFT_SECONDS = 60;
 
 /**
  * Reads a kind:3 contact list from relays and returns the pubkeys it follows.
@@ -64,16 +76,50 @@ export async function fetchContactListPubkeys(
     throw new Error("uploadAllowlist.relays is empty");
   }
 
+  const now = Math.floor(Date.now() / 1000);
+  const curatorPubkey = config.listPubkey.toLowerCase();
   const events = await lastValueFrom(
     pool
       .request(config.relays, {
         kinds: [3],
         authors: [config.listPubkey],
       })
-      .pipe(rxTimeout(config.timeoutMs), toArray()),
+      .pipe(
+        filter((event): event is NostrEvent => {
+          if (
+            event.kind !== 3 ||
+            typeof event.pubkey !== "string" ||
+            event.pubkey.toLowerCase() !== curatorPubkey ||
+            !Number.isSafeInteger(event.created_at) ||
+            event.created_at > now + MAX_EVENT_FUTURE_DRIFT_SECONDS ||
+            !Array.isArray(event.tags) ||
+            !event.tags.every((tag) => Array.isArray(tag))
+          ) return false;
+
+          // Rebuild the event so an untrusted relay object cannot supply the
+          // private verification-cache symbol used by nostr-tools.
+          const candidate: NostrEvent = {
+            id: event.id,
+            pubkey: event.pubkey,
+            created_at: event.created_at,
+            kind: event.kind,
+            tags: event.tags,
+            content: event.content,
+            sig: event.sig,
+          };
+          try {
+            return verifyEvent(candidate);
+          } catch {
+            return false;
+          }
+        }),
+        take(MAX_RELAY_EVENTS),
+        rxTimeout(config.timeoutMs),
+        toArray(),
+      ),
   );
 
-  let newest: { created_at: number; tags: string[][] } | undefined;
+  let newest: NostrEvent | undefined;
   for (const event of events) {
     if (!newest || event.created_at > newest.created_at) newest = event;
   }
@@ -84,13 +130,12 @@ export async function fetchContactListPubkeys(
 
   const pubkeys = new Set<string>();
   for (const tag of newest.tags) {
-    if (tag[0] === "p" && typeof tag[1] === "string" && tag[1].length > 0) {
+    if (
+      tag[0] === "p" && typeof tag[1] === "string" &&
+      HEX_PUBKEY_RE.test(tag[1])
+    ) {
       pubkeys.add(tag[1].toLowerCase());
     }
-  }
-
-  if (pubkeys.size === 0) {
-    throw new Error("contact list contained no p tags");
   }
 
   return pubkeys;

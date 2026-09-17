@@ -80,4 +80,12 @@ report:
   enabled: false
 
 dashboard:
-  enabled: false
+  enabled: true
+  password: "${BLOSSOM_ADMIN_PASSWORD}"
+  sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}"
+  adminPubkeys:
+    - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+  lookupRelays:
+    - wss://fanfares.nostr1.com
+    - wss://relay.primal.net
+    - wss://relay.damus.io

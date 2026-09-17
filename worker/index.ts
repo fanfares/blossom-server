@@ -14,6 +14,9 @@ type Env = {
   TURSO_AUTH_TOKEN?: string;
   BLOSSOM_PUBLIC_DOMAIN?: string;
   BLOSSOM_ADMIN_PASSWORD?: string;
+  BLOSSOM_ADMIN_SESSION_SECRET?: string;
+  BLOSSOM_META_ADMIN_TOKEN?: string;
+  BLOSSOM_CONTAINER_INSTANCE?: string;
   BLOSSOM_APP: DurableObjectNamespace<BlossomAppContainer>;
 };
 
@@ -188,8 +191,8 @@ async function constantTimeEqual(a: string, b: string): Promise<boolean> {
 /**
  * Gates a `/__meta` admin operation on the configured bearer secret.
  *
- * Fails closed when BLOSSOM_ADMIN_PASSWORD is missing or empty. The previous
- * `if (adminPassword.length > 0)` form skipped the check entirely when the
+ * Fails closed when BLOSSOM_META_ADMIN_TOKEN is missing or empty. The previous
+ * `if (adminToken.length > 0)` form skipped the check entirely when the
  * secret was unset, and wrangler.jsonc shipped it as an empty `vars` entry, so
  * the gate was open in the deployed configuration and any redeploy would
  * overwrite a correctly set secret back to "".
@@ -200,16 +203,16 @@ async function requireMetaAdmin(
   request: Request,
   env: Env,
 ): Promise<Response | null> {
-  const adminPassword = env.BLOSSOM_ADMIN_PASSWORD;
-  if (typeof adminPassword !== "string" || adminPassword.length === 0) {
+  const adminToken = env.BLOSSOM_META_ADMIN_TOKEN;
+  if (typeof adminToken !== "string" || adminToken.length === 0) {
     console.error(
-      "Refusing /__meta admin request: BLOSSOM_ADMIN_PASSWORD is not configured",
+      "Refusing /__meta admin request: BLOSSOM_META_ADMIN_TOKEN is not configured",
     );
     return json({ error: "server configuration error" }, 500);
   }
 
   const auth = request.headers.get("authorization") ?? "";
-  if (!(await constantTimeEqual(auth, `Bearer ${adminPassword}`))) {
+  if (!(await constantTimeEqual(auth, `Bearer ${adminToken}`))) {
     return json({ error: "unauthorized" }, 401);
   }
 
@@ -308,6 +311,9 @@ async function handleMetadataApi(
         owners: r.owners
           ? String(r.owners).split(",").filter((v) => v.length > 0)
           : [],
+        // Event associations live in the canonical libSQL database used by
+        // the authenticated admin panel, not in the public D1 metadata mirror.
+        events: [],
       })),
     });
   }
@@ -541,6 +547,7 @@ export class BlossomAppContainer extends Container {
       R2_BUCKET: env.R2_BUCKET,
       BLOSSOM_PUBLIC_DOMAIN: env.BLOSSOM_PUBLIC_DOMAIN ?? "",
       BLOSSOM_ADMIN_PASSWORD: env.BLOSSOM_ADMIN_PASSWORD ?? "",
+      BLOSSOM_ADMIN_SESSION_SECRET: env.BLOSSOM_ADMIN_SESSION_SECRET ?? "",
       D1_METADATA_ENABLED: "1",
     };
 
@@ -567,7 +574,9 @@ export default {
     if (metaResponse) return metaResponse;
 
     // Keep blob upload/download paths on the existing container runtime.
-    const container = env.BLOSSOM_APP.getByName("primary");
+    const container = env.BLOSSOM_APP.getByName(
+      env.BLOSSOM_CONTAINER_INSTANCE ?? "primary",
+    );
     await container.start();
     const response = await container.fetch(request);
 

@@ -16,6 +16,12 @@
 
 import { assertEquals, assertRejects } from "@std/assert";
 import { HTTPException } from "@hono/hono/http-exception";
+import { of } from "rxjs";
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+} from "nostr-tools/pure";
 import {
   createUploadAllowlist,
   fetchContactListPubkeys,
@@ -25,6 +31,8 @@ import type { UploadAllowlistConfig } from "../../src/config/schema.ts";
 const ALICE = "a".repeat(64);
 const BOB = "b".repeat(64);
 const OPERATOR = "c".repeat(64);
+const curatorSecretKey = generateSecretKey();
+const CURATOR = getPublicKey(curatorSecretKey);
 
 /**
  * Builds an allowlist config with test-friendly defaults.
@@ -226,4 +234,72 @@ Deno.test("contact-list parsing requires configuration", async () => {
       {} as any,
     )
   );
+});
+
+Deno.test("contact-list parsing ignores forged relay events", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const valid = finalizeEvent({
+    kind: 3,
+    created_at: now,
+    content: "",
+    tags: [["p", ALICE]],
+  }, curatorSecretKey);
+  const forged = {
+    ...JSON.parse(JSON.stringify(valid)),
+    id: "f".repeat(64),
+    sig: "0".repeat(128),
+    created_at: now + 30,
+    tags: [["p", BOB]],
+  };
+  const pool = { request: () => of(forged, valid) };
+
+  const result = await fetchContactListPubkeys(
+    makeConfig({ listPubkey: CURATOR }),
+    // deno-lint-ignore no-explicit-any
+    pool as any,
+  );
+
+  assertEquals(result, new Set([ALICE]));
+});
+
+Deno.test("forged relay flood cannot crowd out a valid contact list", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const valid = finalizeEvent({
+    kind: 3,
+    created_at: now,
+    content: "",
+    tags: [["p", ALICE]],
+  }, curatorSecretKey);
+  const forged = Array.from({ length: 256 }, (_, index) => ({
+    ...JSON.parse(JSON.stringify(valid)),
+    id: index.toString(16).padStart(64, "0"),
+    sig: "0".repeat(128),
+  }));
+  const pool = { request: () => of(...forged, valid) };
+
+  const result = await fetchContactListPubkeys(
+    makeConfig({ listPubkey: CURATOR }),
+    // deno-lint-ignore no-explicit-any
+    pool as any,
+  );
+
+  assertEquals(result, new Set([ALICE]));
+});
+
+Deno.test("contact-list parsing accepts an authenticated empty revocation", async () => {
+  const event = finalizeEvent({
+    kind: 3,
+    created_at: Math.floor(Date.now() / 1000),
+    content: "",
+    tags: [],
+  }, curatorSecretKey);
+  const pool = { request: () => of(event) };
+
+  const result = await fetchContactListPubkeys(
+    makeConfig({ listPubkey: CURATOR }),
+    // deno-lint-ignore no-explicit-any
+    pool as any,
+  );
+
+  assertEquals(result.size, 0);
 });

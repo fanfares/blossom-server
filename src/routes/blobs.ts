@@ -22,6 +22,20 @@ import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const ACTIVE_DOCUMENT_TYPES = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "text/xml",
+  "application/xml",
+  "application/xslt+xml",
+  "text/xsl",
+]);
+
+function isActiveDocumentType(mimeType: string): boolean {
+  const normalized = mimeType.split(";", 1)[0].trim().toLowerCase();
+  return ACTIVE_DOCUMENT_TYPES.has(normalized) || normalized.endsWith("+xml");
+}
 
 function parseRequestedExt(filename: string, hash: string): string {
   const suffix = filename.slice(hash.length);
@@ -97,11 +111,19 @@ export function buildBlobsRouter(
 
     const headers: Record<string, string> = {
       "Content-Type": mimeType,
+      "X-Content-Type-Options": "nosniff",
       "Accept-Ranges": "bytes",
       "Cache-Control": "public, max-age=31536000, immutable",
       ETag: `"${hash}"`,
       "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
     };
+    if (isActiveDocumentType(mimeType)) {
+      headers["Content-Security-Policy"] =
+        "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'";
+      headers["Content-Disposition"] = `attachment; filename="${hash}${
+        ext ? `.${ext}` : ""
+      }"`;
+    }
     if (resolvedSize !== null) {
       headers["Content-Length"] = String(resolvedSize);
     }

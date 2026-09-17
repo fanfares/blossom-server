@@ -58,7 +58,8 @@ export async function buildApp(
     app.route("/", await buildLandingRouter(db, config));
   }
 
-  // Admin dashboard — server-rendered Hono JSX, HTTP Basic Auth protected.
+  // Admin dashboard — server-rendered Hono JSX, protected by an allowlisted
+  // Nostr signature followed by a password-authenticated session.
   // Dynamically imported so nostr-profile.ts (EventStore, RelayPool, loader)
   // is only initialised when the dashboard is actually enabled.
   if (config.dashboard.enabled) {
