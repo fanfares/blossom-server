@@ -6,7 +6,6 @@ import { nip19 } from "nostr-tools";
 import {
   AdminLayout,
   Badge,
-  DangerButton,
   formatBytes,
   formatDate,
   PageHeader,
@@ -68,7 +67,6 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
     : [];
 
   const blobUrl = getBlobUrl(blob.sha256, blob.type, config, host);
-  const deleteUrl = `/admin/api/blobs/${blob.sha256}`;
   const mime = blob.type ?? "";
 
   const isImage = mime.startsWith("image/");
@@ -187,11 +185,6 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
             >
               View raw ↗
             </a>
-            <DangerButton
-              onclick={`adminAction('${deleteUrl}','DELETE','Delete this blob permanently? This cannot be undone.')`}
-            >
-              Delete blob
-            </DangerButton>
           </div>
         </div>
 

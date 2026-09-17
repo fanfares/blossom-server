@@ -14,19 +14,14 @@
  *   GET  /admin/rules                        → RulesPage SSR
  *   GET  /admin/reports                      → ReportsPage SSR
  *   GET  /admin/reports/:id                  → ReportDetailPage SSR
- *   DELETE /admin/api/blobs/:sha256          → force-delete blob
- *   DELETE /admin/api/users/:pubkey          → delete all blobs owned by pubkey
  *   POST   /admin/api/reports/:id/dismiss    → dismiss report
- *   POST   /admin/api/reports/:id/delete-blob → delete blob + all reports for it
  */
 
 import { Hono } from "@hono/hono";
 import type { Client } from "@libsql/client";
 import type { IBlobStorage } from "../storage/interface.ts";
 import type { Config } from "../config/schema.ts";
-import { mimeToExt } from "../utils/mime.ts";
-import { deleteBlob, getBlob, listBlobsByPubkeyAdmin } from "../db/blobs.ts";
-import { deleteReport, deleteReportsByBlob, getReport } from "../db/reports.ts";
+import { deleteReport } from "../db/reports.ts";
 import { DirectDbHandle } from "../db/direct.ts";
 import { BlobsPage } from "../admin/blobs-page.tsx";
 import { BlobDetailPage } from "../admin/blob-detail-page.tsx";
@@ -41,7 +36,7 @@ import { registerAdminAuthentication } from "./admin-auth-routes.tsx";
 
 export function buildAdminRouter(
   db: Client,
-  storage: IBlobStorage,
+  _storage: IBlobStorage,
   config: Config,
 ): Hono {
   // Push the configured relay list into the subject — the event loader will
@@ -162,51 +157,6 @@ export function buildAdminRouter(
 
   // ── JSON action endpoints ───────────────────────────────────────────────────
 
-  // DELETE /api/blobs/:sha256 — force-delete a blob and its file
-  app.delete("/api/blobs/:sha256", async (c) => {
-    const sha256 = c.req.param("sha256");
-    const blob = await getBlob(db, sha256);
-    const ext = blob ? mimeToExt(blob.type) : "";
-
-    await deleteBlob(db, sha256);
-
-    await storage
-      .remove(sha256, ext)
-      .catch((err) =>
-        console.warn(
-          `[admin] Failed to remove blob ${sha256} from storage:`,
-          err,
-        )
-      );
-
-    return c.json({ success: true }, 200);
-  });
-
-  // DELETE /api/users/:pubkey — delete all blobs owned by a pubkey
-  app.delete("/api/users/:pubkey", async (c) => {
-    const pubkey = c.req.param("pubkey");
-
-    // Fetch all blobs for this pubkey (large limit — admin operation)
-    const blobs = await listBlobsByPubkeyAdmin(db, pubkey, { limit: 10_000 });
-
-    let deleted = 0;
-    for (const blob of blobs) {
-      const ext = mimeToExt(blob.type);
-      await deleteBlob(db, blob.sha256);
-      await storage
-        .remove(blob.sha256, ext)
-        .catch((err) =>
-          console.warn(
-            `[admin] Failed to remove blob ${blob.sha256} from storage:`,
-            err,
-          )
-        );
-      deleted++;
-    }
-
-    return c.json({ success: true, deleted }, 200);
-  });
-
   // POST /api/reports/:id/dismiss — dismiss report only (keep blob)
   app.post("/api/reports/:id/dismiss", async (c) => {
     const id = parseInt(c.req.param("id"), 10);
@@ -214,34 +164,6 @@ export function buildAdminRouter(
 
     const deleted = await deleteReport(db, id);
     if (!deleted) return c.json({ error: "Report not found" }, 404);
-
-    return c.json({ success: true }, 200);
-  });
-
-  // POST /api/reports/:id/delete-blob — delete blob + dismiss all its reports
-  app.post("/api/reports/:id/delete-blob", async (c) => {
-    const id = parseInt(c.req.param("id"), 10);
-    if (isNaN(id)) return c.json({ error: "Invalid report id" }, 400);
-
-    const report = await getReport(db, id);
-    if (!report) return c.json({ error: "Report not found" }, 404);
-
-    const blobHash = report.blob;
-    const blob = await getBlob(db, blobHash);
-    const ext = blob ? mimeToExt(blob.type) : "";
-
-    await deleteBlob(db, blobHash);
-
-    await storage
-      .remove(blobHash, ext)
-      .catch((err) =>
-        console.warn(
-          `[admin] Failed to remove blob ${blobHash} from storage:`,
-          err,
-        )
-      );
-
-    await deleteReportsByBlob(db, blobHash);
 
     return c.json({ success: true }, 200);
   });

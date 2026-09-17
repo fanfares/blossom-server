@@ -187,7 +187,29 @@ Deno.test({
         }),
       );
       assertEquals(dashboardResponse.status, 200);
-      assertStringIncludes(await dashboardResponse.text(), "Inspect event");
+      const dashboardHtml = await dashboardResponse.text();
+      assertStringIncludes(dashboardHtml, "Inspect event");
+      assertEquals(dashboardHtml.includes("/admin/api/blobs/"), false);
+
+      for (
+        const [path, method] of [
+          ["/admin/api/blobs/" + "a".repeat(64), "DELETE"],
+          ["/admin/api/users/" + pubkey, "DELETE"],
+          ["/admin/api/reports/1/delete-blob", "POST"],
+        ] as const
+      ) {
+        const removedAction = await app.fetch(
+          new Request(`http://localhost${path}`, {
+            method,
+            headers: {
+              cookie: sessionCookie,
+              origin: "http://localhost",
+              "sec-fetch-site": "same-origin",
+            },
+          }),
+        );
+        assertEquals(removedAction.status, 404);
+      }
     } finally {
       db.close();
       await Deno.remove(tmpDir, { recursive: true });

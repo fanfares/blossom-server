@@ -3,11 +3,9 @@ import type { IDbHandle } from "../db/handle.ts";
 import {
   AdminLayout,
   Badge,
-  DangerButton,
   formatDate,
   PageHeader,
   SecondaryButton,
-  truncateHash,
 } from "./layout.tsx";
 
 function reportTypeColor(type: string | null): string {
@@ -53,7 +51,6 @@ export const ReportDetailPage: FC<ReportDetailPageProps> = async (
   }
 
   const dismissUrl = `/admin/api/reports/${report.id}/dismiss`;
-  const deleteBlobUrl = `/admin/api/reports/${report.id}/delete-blob`;
 
   return (
     <AdminLayout title={`Report #${report.id}`} section="reports">
@@ -131,15 +128,6 @@ export const ReportDetailPage: FC<ReportDetailPageProps> = async (
           >
             Dismiss report
           </SecondaryButton>
-          <DangerButton
-            onclick={`adminAction('${deleteBlobUrl}','POST','Delete blob ${
-              truncateHash(
-                report.blob,
-              )
-            } and dismiss all its reports? This cannot be undone.')`}
-          >
-            Delete blob + dismiss all
-          </DangerButton>
         </div>
       </div>
     </AdminLayout>

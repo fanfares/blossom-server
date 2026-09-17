@@ -58,6 +58,7 @@ import { getFileRule } from "../prune/rules.ts";
 import type { IBlobStorage } from "../storage/interface.ts";
 import { getBaseUrl, getBlobUrl } from "../utils/url.ts";
 import { getPool, WorkerJobError } from "../workers/pool.ts";
+import { withBlobMutationLock } from "../utils/blob-mutation-lock.ts";
 import type { Config } from "../config/schema.ts";
 
 // ---------------------------------------------------------------------------
@@ -426,33 +427,38 @@ export function buildMediaRouter(
       // --- 11. Short-circuit dedup via media_derivatives ---
       const existingOptimizedHash = await getMediaDerivative(db, originalHash);
       if (existingOptimizedHash) {
-        await Deno.remove(tmpPath).catch(() => {});
-        tmpPath = null;
-        debug(
-          debugPrefix,
-          `dedup hit (derivative) — optimizedHash=${
-            existingOptimizedHash.slice(0, 8)
-          }`,
+        const response = await withBlobMutationLock(
+          existingOptimizedHash,
+          async () => {
+            const existing = await getBlob(db, existingOptimizedHash);
+            if (!existing) return null;
+            await Deno.remove(tmpPath!).catch(() => {});
+            tmpPath = null;
+            debug(
+              debugPrefix,
+              `dedup hit (derivative) — optimizedHash=${
+                existingOptimizedHash.slice(0, 8)
+              }`,
+            );
+            if (
+              auth && !(await isOwner(db, existingOptimizedHash, auth.pubkey))
+            ) {
+              await insertBlob(db, existing, auth.pubkey);
+            }
+            const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+            return ctx.json(
+              {
+                url: getBlobUrl(existing.sha256, existing.type, baseUrl),
+                sha256: existing.sha256,
+                size: existing.size,
+                type: existing.type ?? "application/octet-stream",
+                uploaded: existing.uploaded,
+              } satisfies BlobDescriptor,
+              201,
+            );
+          },
         );
-        const existing = await getBlob(db, existingOptimizedHash);
-        if (existing) {
-          if (
-            auth && !(await isOwner(db, existingOptimizedHash, auth.pubkey))
-          ) {
-            await insertBlob(db, existing, auth.pubkey);
-          }
-          const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
-          return ctx.json(
-            {
-              url: getBlobUrl(existing.sha256, existing.type, baseUrl),
-              sha256: existing.sha256,
-              size: existing.size,
-              type: existing.type ?? "application/octet-stream",
-              uploaded: existing.uploaded,
-            } satisfies BlobDescriptor,
-            201,
-          );
-        }
+        if (response) return response;
         // Derivative record exists but blob was pruned — fall through to re-optimize
       }
 
@@ -507,75 +513,77 @@ export function buildMediaRouter(
       const optimizedMime = detectOptimizedMime(optPath);
       const optimizedExt = mimeToExt(optimizedMime);
 
-      // --- 16. Dedup: optimized blob already stored ---
-      if (await hasBlob(db, optimizedHash)) {
-        await Deno.remove(optPath).catch(() => {});
-        optimizedTmpPath = null;
-        debug(
-          debugPrefix,
-          `dedup hit (optimized blob) — ${optimizedHash.slice(0, 8)}`,
-        );
-        const existing = await getBlob(db, optimizedHash);
-        if (existing) {
-          // Record the original→optimized mapping even on dedup
-          await insertMediaDerivative(db, originalHash, optimizedHash);
-          if (auth && !(await isOwner(db, optimizedHash, auth.pubkey))) {
-            await insertBlob(db, existing, auth.pubkey);
-          }
-          const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
-          return ctx.json(
-            {
-              url: getBlobUrl(existing.sha256, existing.type, baseUrl),
-              sha256: existing.sha256,
-              size: existing.size,
-              type: existing.type ?? "application/octet-stream",
-              uploaded: existing.uploaded,
-            } satisfies BlobDescriptor,
-            201,
+      return await withBlobMutationLock(optimizedHash, async () => {
+        // --- 16. Dedup: optimized blob already stored ---
+        if (await hasBlob(db, optimizedHash)) {
+          await Deno.remove(optPath).catch(() => {});
+          optimizedTmpPath = null;
+          debug(
+            debugPrefix,
+            `dedup hit (optimized blob) — ${optimizedHash.slice(0, 8)}`,
           );
+          const existing = await getBlob(db, optimizedHash);
+          if (existing) {
+            // Record the original→optimized mapping even on dedup
+            await insertMediaDerivative(db, originalHash, optimizedHash);
+            if (auth && !(await isOwner(db, optimizedHash, auth.pubkey))) {
+              await insertBlob(db, existing, auth.pubkey);
+            }
+            const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+            return ctx.json(
+              {
+                url: getBlobUrl(existing.sha256, existing.type, baseUrl),
+                sha256: existing.sha256,
+                size: existing.size,
+                type: existing.type ?? "application/octet-stream",
+                uploaded: existing.uploaded,
+              } satisfies BlobDescriptor,
+              201,
+            );
+          }
         }
-      }
 
-      // --- 17. Commit optimized file to storage ---
-      // For local: atomic rename. For S3: stream optimized file to bucket, delete local copy.
-      // commitFile() handles dedup internally (no-op if blob already exists).
-      try {
-        await storage.commitFile(optPath, optimizedHash, optimizedExt);
-      } catch (err) {
-        await Deno.remove(optPath).catch(() => {});
-        throw err;
-      }
-      optimizedTmpPath = null;
+        // --- 17. Commit optimized file to storage ---
+        // For local: atomic rename. For S3: stream optimized file to bucket, delete local copy.
+        // commitFile() handles dedup internally (no-op if blob already exists).
+        try {
+          await storage.commitFile(optPath, optimizedHash, optimizedExt);
+        } catch (err) {
+          await Deno.remove(optPath).catch(() => {});
+          throw err;
+        }
+        optimizedTmpPath = null;
 
-      // --- 18. Insert metadata + derivative mapping ---
-      const now = Math.floor(Date.now() / 1000);
-      const blobRecord = {
-        sha256: optimizedHash,
-        size: optimizedSize,
-        type: optimizedMime !== "application/octet-stream"
-          ? optimizedMime
-          : null,
-        uploaded: now,
-      };
-      await insertBlob(db, blobRecord, auth?.pubkey ?? "anonymous");
-      await insertMediaDerivative(db, originalHash, optimizedHash);
-
-      // --- 19. Return BlobDescriptor ---
-      debug(
-        debugPrefix,
-        `media upload complete — ${optimizedHash} (${optimizedSize} bytes, ${optimizedMime})`,
-      );
-      const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
-      return ctx.json(
-        {
-          url: getBlobUrl(optimizedHash, blobRecord.type, baseUrl),
+        // --- 18. Insert metadata + derivative mapping ---
+        const now = Math.floor(Date.now() / 1000);
+        const blobRecord = {
           sha256: optimizedHash,
           size: optimizedSize,
-          type: blobRecord.type ?? "application/octet-stream",
+          type: optimizedMime !== "application/octet-stream"
+            ? optimizedMime
+            : null,
           uploaded: now,
-        } satisfies BlobDescriptor,
-        201,
-      );
+        };
+        await insertBlob(db, blobRecord, auth?.pubkey ?? "anonymous");
+        await insertMediaDerivative(db, originalHash, optimizedHash);
+
+        // --- 19. Return BlobDescriptor ---
+        debug(
+          debugPrefix,
+          `media upload complete — ${optimizedHash} (${optimizedSize} bytes, ${optimizedMime})`,
+        );
+        const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+        return ctx.json(
+          {
+            url: getBlobUrl(optimizedHash, blobRecord.type, baseUrl),
+            sha256: optimizedHash,
+            size: optimizedSize,
+            type: blobRecord.type ?? "application/octet-stream",
+            uploaded: now,
+          } satisfies BlobDescriptor,
+          201,
+        );
+      });
     } catch (err) {
       // Global catch: clean up any remaining temp files
       if (tmpPath) await Deno.remove(tmpPath).catch(() => {});

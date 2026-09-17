@@ -7,7 +7,6 @@ import { fetchOwnerEvents, groupBlobsByEvents } from "./event-index.ts";
 import {
   AdminLayout,
   Badge,
-  DangerButton,
   EmptyState,
   formatBytes,
   formatDate,
@@ -300,7 +299,6 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                     config,
                     host,
                   );
-                  const deleteUrl = `/admin/api/blobs/${blob.sha256}`;
                   return (
                     <tr
                       key={blob.sha256}
@@ -366,15 +364,6 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                           >
                             View ↗
                           </a>
-                          <DangerButton
-                            onclick={`adminAction('${deleteUrl}','DELETE','Delete blob ${
-                              truncateHash(
-                                blob.sha256,
-                              )
-                            }? This cannot be undone.')`}
-                          >
-                            Delete
-                          </DangerButton>
                         </div>
                       </Td>
                     </tr>

@@ -9,7 +9,6 @@ import { fetchOwnerEvents, groupBlobsByEvents } from "./event-index.ts";
 import {
   AdminLayout,
   Badge,
-  DangerButton,
   formatBytes,
   formatDate,
   PageHeader,
@@ -99,7 +98,6 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
     // Silently ignore encoding errors — pubkey stays as hex
   }
 
-  const deleteAllUrl = `/admin/api/users/${pubkey}`;
   // Resolved display name — prefer display_name, fall back to name.
   const displayName = profile?.display_name || profile?.name || null;
 
@@ -221,14 +219,6 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
             </dd>
           </div>
         </dl>
-
-        <div class="pt-2">
-          <DangerButton
-            onclick={`adminAction('${deleteAllUrl}','DELETE','Delete ALL ${total} blob(s) for this user? This cannot be undone.')`}
-          >
-            Delete all blobs
-          </DangerButton>
-        </div>
       </div>
 
       {grouped.groups.length > 0 && (
@@ -336,11 +326,6 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
                   <Td>{formatBytes(blob.size)}</Td>
                   <Td>{formatDate(blob.uploaded)}</Td>
                   <Td>
-                    <DangerButton
-                      onclick={`adminAction('/admin/api/blobs/${blob.sha256}','DELETE','Delete this blob permanently? This cannot be undone.')`}
-                    >
-                      Delete
-                    </DangerButton>
                   </Td>
                 </tr>
               ))}

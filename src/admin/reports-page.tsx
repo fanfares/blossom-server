@@ -4,7 +4,6 @@ import { REPORT_TYPES } from "../db/reports.ts";
 import {
   AdminLayout,
   Badge,
-  DangerButton,
   EmptyState,
   formatDate,
   PageHeader,
@@ -114,8 +113,6 @@ export const ReportsPage: FC<ReportsPageProps> = async (
             <Tbody>
               {reports.map((report) => {
                 const dismissUrl = `/admin/api/reports/${report.id}/dismiss`;
-                const deleteBlobUrl =
-                  `/admin/api/reports/${report.id}/delete-blob`;
                 return (
                   <tr
                     key={report.id}
@@ -170,11 +167,6 @@ export const ReportsPage: FC<ReportsPageProps> = async (
                         >
                           Dismiss
                         </SecondaryButton>
-                        <DangerButton
-                          onclick={`adminAction('${deleteBlobUrl}','POST','Delete the reported blob and dismiss all its reports? This cannot be undone.')`}
-                        >
-                          Delete blob
-                        </DangerButton>
                       </div>
                     </Td>
                   </tr>

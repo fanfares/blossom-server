@@ -74,7 +74,23 @@ export function parseAuthEvent(
     } catch {
       decoded = atob(raw);
     }
-    auth = JSON.parse(decoded) as NostrEvent;
+    const parsed: unknown = JSON.parse(decoded);
+    if (
+      !parsed || typeof parsed !== "object" ||
+      typeof (parsed as Record<string, unknown>).id !== "string" ||
+      typeof (parsed as Record<string, unknown>).pubkey !== "string" ||
+      typeof (parsed as Record<string, unknown>).sig !== "string" ||
+      typeof (parsed as Record<string, unknown>).content !== "string" ||
+      !Number.isSafeInteger((parsed as Record<string, unknown>).kind) ||
+      !Number.isSafeInteger((parsed as Record<string, unknown>).created_at) ||
+      !Array.isArray((parsed as Record<string, unknown>).tags) ||
+      !(parsed as Record<string, unknown[]>).tags.every((tag) =>
+        Array.isArray(tag) && tag.every((value) => typeof value === "string")
+      )
+    ) {
+      throw new Error("invalid auth event shape");
+    }
+    auth = parsed as NostrEvent;
   } catch {
     throw new HTTPException(400, {
       message: "Invalid Authorization header encoding",
@@ -92,18 +108,31 @@ export function parseAuthEvent(
     });
   }
 
-  const expiration = auth.tags.find((t) => t[0] === "expiration")?.[1];
-  if (!expiration) {
+  const expirationTags = auth.tags.filter((t) => t[0] === "expiration");
+  const expiration = expirationTags[0]?.[1];
+  if (expirationTags.length !== 1 || !expiration) {
     throw new HTTPException(400, {
-      message: "Auth event missing expiration tag",
+      message: "Auth event must contain exactly one expiration tag",
     });
   }
-  if (parseInt(expiration, 10) < now) {
+  if (!/^(0|[1-9]\d*)$/.test(expiration)) {
+    throw new HTTPException(400, {
+      message: "Auth event expiration must be a Unix timestamp",
+    });
+  }
+  const expirationTimestamp = Number(expiration);
+  if (!Number.isSafeInteger(expirationTimestamp)) {
+    throw new HTTPException(400, {
+      message: "Auth event expiration must be a safe integer",
+    });
+  }
+  if (expirationTimestamp <= now) {
     throw new HTTPException(401, { message: "Auth token expired" });
   }
 
-  const tTag = auth.tags.find((t) => t[0] === "t")?.[1];
-  if (!tTag) {
+  const tTags = auth.tags.filter((t) => t[0] === "t");
+  const tTag = tTags[0]?.[1];
+  if (tTags.length !== 1 || !tTag) {
     throw new HTTPException(400, { message: "Auth event missing t tag" });
   }
 
@@ -158,10 +187,7 @@ export function authMiddleware(
         ctx.set("authType", auth.tags.find((t) => t[0] === "t")?.[1]);
         ctx.set(
           "authExpiration",
-          parseInt(
-            auth.tags.find((t) => t[0] === "expiration")?.[1] ?? "0",
-            10,
-          ),
+          Number(auth.tags.find((t) => t[0] === "expiration")?.[1] ?? "0"),
         );
       } catch (err) {
         debug("[auth]", "Auth parse error", err);

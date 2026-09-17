@@ -135,6 +135,52 @@ Deno.test("parseAuthEvent: rejects event with expired expiration tag", () => {
   );
 });
 
+Deno.test("parseAuthEvent: rejects malformed and ambiguous expiration tags", () => {
+  const now = Math.floor(Date.now() / 1000);
+  for (
+    const expiration of [
+      "not-a-timestamp",
+      "Infinity",
+      `${now + 600}junk`,
+      "-1",
+      "9007199254740992",
+      String(now),
+    ]
+  ) {
+    const event = makeEvent({
+      tags: [["t", "upload"], ["expiration", expiration]],
+    });
+    assertThrows(
+      () => parseAuthEvent(encodeEvent(event), null),
+      HTTPException,
+    );
+  }
+
+  const duplicate = makeEvent({
+    tags: [
+      ["t", "upload"],
+      ["expiration", String(now + 600)],
+      ["expiration", String(now + 1_200)],
+    ],
+  });
+  assertThrows(
+    () => parseAuthEvent(encodeEvent(duplicate), null),
+    HTTPException,
+    "exactly one expiration",
+  );
+});
+
+Deno.test("parseAuthEvent: malformed event shapes fail as client errors", () => {
+  const malformed = encodeBase64Url(
+    new TextEncoder().encode(JSON.stringify({ kind: 24242 })),
+  );
+  assertThrows(
+    () => parseAuthEvent(malformed, null),
+    HTTPException,
+    "Invalid Authorization header encoding",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // parseAuthEvent — t tag
 // ---------------------------------------------------------------------------

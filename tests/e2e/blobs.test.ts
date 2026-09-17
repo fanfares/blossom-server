@@ -193,6 +193,87 @@ Deno.test({
   ...testOpts,
 });
 
+Deno.test({
+  name: "active documents are forced to download under a sandboxed CSP",
+  async fn() {
+    const html = new TextEncoder().encode("<script>parent.pwned=true</script>");
+    const hash = await sha256Hex(html);
+    const uploadRes = await app.fetch(
+      new Request("http://localhost/upload", {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(html.byteLength),
+          "Content-Type": "text/html",
+          "X-SHA-256": hash,
+        },
+        body: html,
+      }),
+    );
+    assertEquals(uploadRes.status, 201);
+    await uploadRes.body?.cancel();
+
+    for (
+      const request of [
+        new Request(`http://localhost/${hash}.html`),
+        new Request(`http://localhost/${hash}.html`, { method: "HEAD" }),
+        new Request(`http://localhost/${hash}.html`, {
+          headers: { Range: "bytes=0-6" },
+        }),
+      ]
+    ) {
+      const res = await app.fetch(request);
+      assertEquals([200, 206].includes(res.status), true);
+      assertEquals(
+        res.headers.get("Content-Security-Policy"),
+        "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'",
+      );
+      assertEquals(
+        res.headers.get("Content-Disposition"),
+        `attachment; filename="${hash}.html"`,
+      );
+      assertEquals(res.headers.get("X-Content-Type-Options"), "nosniff");
+      await res.body?.cancel();
+    }
+  },
+  ...testOpts,
+});
+
+Deno.test({
+  name: "structured-suffix XML is forced to download under a sandboxed CSP",
+  async fn() {
+    const xml = new TextEncoder().encode(
+      "<feed xmlns='http://www.w3.org/2005/Atom'/>",
+    );
+    const hash = await sha256Hex(xml);
+    const uploadRes = await app.fetch(
+      new Request("http://localhost/upload", {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(xml.byteLength),
+          "Content-Type": "application/atom+xml",
+          "X-SHA-256": hash,
+        },
+        body: xml,
+      }),
+    );
+    assertEquals(uploadRes.status, 201);
+    await uploadRes.body?.cancel();
+
+    const res = await app.fetch(new Request(`http://localhost/${hash}.xml`));
+    assertEquals(
+      res.headers.get("Content-Disposition"),
+      `attachment; filename="${hash}.atom"`,
+    );
+    assertEquals(
+      res.headers.get("Content-Security-Policy")?.startsWith("sandbox;"),
+      true,
+    );
+    assertEquals(res.headers.get("X-Content-Type-Options"), "nosniff");
+    await res.body?.cancel();
+  },
+  ...testOpts,
+});
+
 // ---------------------------------------------------------------------------
 // HEAD — should return 200, accept-ranges, ignore Range header
 // ---------------------------------------------------------------------------
