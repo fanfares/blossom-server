@@ -82,6 +82,16 @@ use port `3000`.
 
 Start Blossom and build its landing-page bundle with one command:
 
+Create a local `.env` (which is ignored by Git) with unique admin credentials:
+
+```sh
+BLOSSOM_ADMIN_PASSWORD=<choose-a-password-of-at-least-12-characters>
+BLOSSOM_ADMIN_SESSION_SECRET=<generate-at-least-32-random-characters>
+```
+
+The same `.env` supplies `deno task dev:moderation`. Use distinct values from
+Cloudflare secrets and do not commit this file.
+
 ```sh
 deno task dev:local
 ```
@@ -119,6 +129,22 @@ Turso rather than the container filesystem. `TURSO_DATABASE_URL` and
 `TURSO_AUTH_TOKEN` must be present in the Worker environment; startup fails
 instead of silently falling back to ephemeral SQLite when either value is
 missing.
+
+Cloudflare deployments use separate custom domains for blob reads:
+`blobs.staging.blossom.fanfares.live` on staging and
+`blobs.blossom.fanfares.live` in production. Wrangler creates their DNS records
+and certificates when the manual deploy workflow runs. The API domain remains
+the BUD-11 server domain. Legacy blob links on that domain redirect to the blob
+domain. The blob domain accepts only canonical GET/HEAD blob paths and strips
+incoming cookies and authorization before forwarding. Keep both Wrangler configs
+at `max_instances: 1` until shared database locking covers blob ownership and
+quote creation.
+
+Before enabling the dashboard in production, provision independent
+`BLOSSOM_ADMIN_PASSWORD` and `BLOSSOM_ADMIN_SESSION_SECRET` Worker secrets in
+Cloudflare. They are present in staging but were not present in production as of
+the 2026-09-22 deployment inventory. Both must be set before running the manual
+production deploy workflow; configuration loading fails if either is missing.
 
 Pass a custom config path as the first argument:
 

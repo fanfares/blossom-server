@@ -445,7 +445,10 @@ export function buildMediaRouter(
             ) {
               await insertBlob(db, existing, auth.pubkey);
             }
-            const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+            const baseUrl = getBaseUrl(
+              ctx.req.raw,
+              config.blobDomain || config.publicDomain,
+            );
             return ctx.json(
               {
                 url: getBlobUrl(existing.sha256, existing.type, baseUrl),
@@ -529,7 +532,10 @@ export function buildMediaRouter(
             if (auth && !(await isOwner(db, optimizedHash, auth.pubkey))) {
               await insertBlob(db, existing, auth.pubkey);
             }
-            const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+            const baseUrl = getBaseUrl(
+              ctx.req.raw,
+              config.blobDomain || config.publicDomain,
+            );
             return ctx.json(
               {
                 url: getBlobUrl(existing.sha256, existing.type, baseUrl),
@@ -572,7 +578,10 @@ export function buildMediaRouter(
           debugPrefix,
           `media upload complete — ${optimizedHash} (${optimizedSize} bytes, ${optimizedMime})`,
         );
-        const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+        const baseUrl = getBaseUrl(
+          ctx.req.raw,
+          config.blobDomain || config.publicDomain,
+        );
         return ctx.json(
           {
             url: getBlobUrl(optimizedHash, blobRecord.type, baseUrl),

@@ -131,7 +131,10 @@ export function buildListRouter(
     });
 
     // --- Build response ---
-    const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+    const baseUrl = getBaseUrl(
+      ctx.req.raw,
+      config.blobDomain || config.publicDomain,
+    );
     const descriptors: BlobDescriptor[] = blobs.map((b) => ({
       url: getBlobUrl(b.sha256, b.type, baseUrl),
       sha256: b.sha256,

@@ -117,6 +117,7 @@ Deno.test({
 
     const config = ConfigSchema.parse({
       publicDomain: "localhost",
+      blobDomain: "blobs.localhost",
       upload: { requireAuth: false, enabled: true },
     });
 
@@ -140,6 +141,7 @@ Deno.test({
     );
     assertEquals(uploadRes.status, 201, "Upload should succeed");
     const descriptor = await uploadRes.json();
+    assertEquals(new URL(descriptor.url).hostname, "blobs.localhost");
     blobUrl = new URL(descriptor.url).pathname; // e.g. /abc123...
 
     cleanup = async () => {
@@ -170,6 +172,23 @@ Deno.test({
       assertEquals(res.status, 200, `GET ${path} should succeed`);
       const body = new Uint8Array(await res.arrayBuffer());
       assertEquals(body, BLOB_DATA, `GET ${path} should return the blob bytes`);
+    }
+  },
+  ...testOpts,
+});
+
+Deno.test({
+  name: "noncanonical blob aliases cannot bypass the dedicated-host redirect",
+  async fn() {
+    for (
+      const path of [
+        `/prefix-${blobHash}.bin`,
+        `/${blobHash}.bin.extra`,
+        `/%${blobHash.charCodeAt(0).toString(16)}${blobHash.slice(1)}.bin`,
+      ]
+    ) {
+      const res = await app.fetch(new Request(`http://localhost${path}`));
+      assertEquals(res.status, 404);
     }
   },
   ...testOpts,
