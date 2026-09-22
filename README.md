@@ -140,6 +140,12 @@ incoming cookies and authorization before forwarding. Keep both Wrangler configs
 at `max_instances: 1` until shared database locking covers blob ownership and
 quote creation.
 
+Before enabling the dashboard in production, provision independent
+`BLOSSOM_ADMIN_PASSWORD` and `BLOSSOM_ADMIN_SESSION_SECRET` Worker secrets in
+Cloudflare. They are present in staging but were not present in production as of
+the 2026-09-22 deployment inventory. Both must be set before running the manual
+production deploy workflow; configuration loading fails if either is missing.
+
 Pass a custom config path as the first argument:
 
 ```sh
