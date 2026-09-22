@@ -54,11 +54,16 @@ export function eventIdentifierToFilter(
 /** Extracts this Blossom server's referenced hashes and whether each imeta marks encryption. */
 export function extractEventBlobReferences(
   event: NostrEvent,
-  publicDomain: string,
+  publicDomain: string | string[],
 ): EventBlobReference[] {
-  const hostname = new URL(
-    publicDomain.includes("://") ? publicDomain : `https://${publicDomain}`,
-  ).hostname.toLowerCase();
+  const hostnames = new Set(
+    (Array.isArray(publicDomain) ? publicDomain : [publicDomain]).map((
+      domain,
+    ) =>
+      new URL(domain.includes("://") ? domain : `https://${domain}`).hostname
+        .toLowerCase()
+    ),
+  );
   const references = new Map<string, EventBlobReference>();
   for (const tag of event.tags) {
     if (tag[0] !== "imeta") continue;
@@ -80,7 +85,7 @@ export function extractEventBlobReferences(
       const candidate = field.slice(4);
       try {
         const url = new URL(candidate);
-        const match = url.hostname.toLowerCase() === hostname
+        const match = hostnames.has(url.hostname.toLowerCase())
           ? url.pathname.match(BLOB_PATH_RE)
           : null;
         if (match) {
@@ -126,7 +131,7 @@ export async function fetchOwnerEvents(
 export function groupBlobsByEvents(
   blobs: AdminBlobRecord[],
   events: NostrEvent[],
-  publicDomain: string,
+  publicDomain: string | string[],
 ): { groups: AdminEventGroup[]; ungrouped: AdminBlobRecord[] } {
   const blobsByHash = new Map(
     blobs.map((blob) => [blob.sha256.toLowerCase(), blob]),
@@ -167,7 +172,7 @@ export async function inspectAndIndexEvent(
   db: Client,
   identifier: string,
   relays: string[],
-  publicDomain: string,
+  publicDomain: string | string[],
 ): Promise<IndexedEventResult> {
   if (relays.length === 0) {
     throw new Error("No dashboard lookup relays are configured.");

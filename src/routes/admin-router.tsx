@@ -90,7 +90,8 @@ export function buildAdminRouter(
         db,
         identifier,
         config.dashboard.lookupRelays,
-        config.publicDomain || new URL(c.req.url).hostname,
+        [config.publicDomain || new URL(c.req.url).hostname, config.blobDomain]
+          .filter(Boolean),
       );
       const notice =
         `Indexed event ${result.event.id}: ${result.linked.length} stored file(s), ${result.missing.length} missing.`;

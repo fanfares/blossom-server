@@ -43,7 +43,11 @@ Deno.test("event extraction keeps only this server and classifies each imeta", (
         `url https://blossom.example/${encryptedHash}.bin`,
         "encrypted aes-256-gcm",
       ],
-      ["imeta", `url https://blossom.example/${publicHash}.jpg`, "preview"],
+      [
+        "imeta",
+        `url https://blobs.blossom.example/${publicHash}.jpg`,
+        "preview",
+      ],
       [
         "imeta",
         `url https://attacker.example/${"c".repeat(64)}.jpg`,
@@ -51,24 +55,30 @@ Deno.test("event extraction keeps only this server and classifies each imeta", (
       ],
     ],
   } as NostrEvent;
-  assertEquals(extractEventBlobReferences(event, "blossom.example"), [
-    {
-      sha256: encryptedHash,
-      encrypted: true,
-      name: undefined,
-      role: undefined,
-      chunkIndex: 1,
-      chunkCount: 1,
-    },
-    {
-      sha256: publicHash,
-      encrypted: false,
-      name: undefined,
-      role: "preview",
-      chunkIndex: 1,
-      chunkCount: 1,
-    },
-  ]);
+  assertEquals(
+    extractEventBlobReferences(event, [
+      "blossom.example",
+      "blobs.blossom.example",
+    ]),
+    [
+      {
+        sha256: encryptedHash,
+        encrypted: true,
+        name: undefined,
+        role: undefined,
+        chunkIndex: 1,
+        chunkCount: 1,
+      },
+      {
+        sha256: publicHash,
+        encrypted: false,
+        name: undefined,
+        role: "preview",
+        chunkIndex: 1,
+        chunkCount: 1,
+      },
+    ],
+  );
 });
 
 Deno.test("admin blobs group under events while unmatched uploads remain visible", () => {

@@ -692,6 +692,9 @@ export const ConfigSchema = z
           "Set this explicitly when clients use BUD-11 server tags; the client-controlled Host header is never trusted for auth validation. " +
           "Do NOT include a protocol scheme (https://) — bare hostname only.",
       ),
+    blobDomain: z.string().default("").describe(
+      "Optional bare hostname used only for public blob URLs. Keep the API and BUD-11 server domain in publicDomain.",
+    ),
     // Deprecated: use the "database" section instead.
     // If "database" is absent this value seeds database.path.
     databasePath: z.string().optional().describe(

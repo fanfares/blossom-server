@@ -370,7 +370,10 @@ export function buildUploadRouter(
         } finally {
           await releaseReservation();
         }
-        const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+        const baseUrl = getBaseUrl(
+          ctx.req.raw,
+          config.blobDomain || config.publicDomain,
+        );
         return ctx.json(
           {
             url: getBlobUrl(existing.sha256, existing.type, baseUrl),
@@ -563,7 +566,10 @@ export function buildUploadRouter(
         blobRecord.type ?? "application/octet-stream"
       })`,
     );
-    const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+    const baseUrl = getBaseUrl(
+      ctx.req.raw,
+      config.blobDomain || config.publicDomain,
+    );
     return ctx.json(
       {
         url: getBlobUrl(hash, blobRecord.type, baseUrl),
@@ -612,7 +618,10 @@ async function getQuotaPaymentResponse(
     const reason = `Storage payment required: ${units} unit${
       units === 1 ? "" : "s"
     }`;
-    const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+    const baseUrl = getBaseUrl(
+      ctx.req.raw,
+      config.blobDomain || config.publicDomain,
+    );
     return ctx.body(reason, 402, {
       "Content-Type": "text/plain",
       "X-Reason": reason,

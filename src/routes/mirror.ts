@@ -416,7 +416,10 @@ export function buildMirrorRouter(
           if (auth && !(await isOwner(db, hash, auth.pubkey))) {
             await insertBlob(db, existing, auth.pubkey);
           }
-          const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+          const baseUrl = getBaseUrl(
+            ctx.req.raw,
+            config.blobDomain || config.publicDomain,
+          );
           return ctx.json(
             {
               url: getBlobUrl(existing.sha256, existing.type, baseUrl),
@@ -463,7 +466,10 @@ export function buildMirrorRouter(
           blobRecord.type ?? "application/octet-stream"
         })`,
       );
-      const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+      const baseUrl = getBaseUrl(
+        ctx.req.raw,
+        config.blobDomain || config.publicDomain,
+      );
       return ctx.json(
         {
           url: getBlobUrl(hash, blobRecord.type, baseUrl),

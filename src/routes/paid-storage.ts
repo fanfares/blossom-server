@@ -33,7 +33,10 @@ export function buildPaidStorageRouter(
       service.getActiveGrants(auth.pubkey),
       listBlobsByPubkey(db, auth.pubkey, { limit: 1000 }),
     ]);
-    const baseUrl = getBaseUrl(ctx.req.raw, config.publicDomain);
+    const baseUrl = getBaseUrl(
+      ctx.req.raw,
+      config.blobDomain || config.publicDomain,
+    );
     return ctx.json({
       enabled: service.enabled,
       pubkey: auth.pubkey,

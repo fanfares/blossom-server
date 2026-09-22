@@ -11,6 +11,7 @@ port: 3000
 # server-scoped tokens are rejected if it is wrong — so it must match the
 # hostname clients actually use.
 publicDomain: "${BLOSSOM_PUBLIC_DOMAIN}"
+blobDomain: "${BLOSSOM_BLOB_DOMAIN}"
 
 # Paid grants, reservations, ownership, and treasury state must survive
 # Cloudflare Container replacement. Local SQLite is ephemeral in this runtime.

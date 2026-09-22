@@ -89,7 +89,11 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
     owners: [pubkey],
     events: [],
   }));
-  const grouped = groupBlobsByEvents(adminBlobs, events, config.publicDomain);
+  const grouped = groupBlobsByEvents(
+    adminBlobs,
+    events,
+    [config.publicDomain, config.blobDomain].filter(Boolean),
+  );
 
   let npub = "";
   try {
