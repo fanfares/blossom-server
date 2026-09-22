@@ -67,6 +67,8 @@ export function buildBlobsRouter(
   // Match the full segment including optional extension (e.g. abc123...def.jpg)
   app.on(["GET", "HEAD"], "/:filename", async (ctx, next) => {
     const filename = ctx.req.param("filename") ?? "";
+    const rawPath = new URL(ctx.req.raw.url).pathname;
+    if (!/^\/[0-9a-f]{64}(?:\.[A-Za-z0-9]+)?$/.test(rawPath)) return next();
     // Only canonical blob paths may reach storage. The edge redirects these
     // paths to the dedicated blob hostname before the container sees them.
     const match = filename.match(/^([0-9a-f]{64})(?:\.[A-Za-z0-9]+)?$/);

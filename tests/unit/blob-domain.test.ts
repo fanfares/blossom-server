@@ -33,6 +33,14 @@ Deno.test("dedicated blob hostname accepts only canonical reads", () => {
   }
   assertEquals(
     classifyBlobRequest(
+      new URL(`https://${BLOB_DOMAIN}/%61${HASH.slice(1)}`),
+      "GET",
+      BLOB_DOMAIN,
+    ),
+    "reject",
+  );
+  assertEquals(
+    classifyBlobRequest(
       new URL(`https://${BLOB_DOMAIN}/${HASH}`),
       "DELETE",
       BLOB_DOMAIN,

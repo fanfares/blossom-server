@@ -180,7 +180,13 @@ Deno.test({
 Deno.test({
   name: "noncanonical blob aliases cannot bypass the dedicated-host redirect",
   async fn() {
-    for (const path of [`/prefix-${blobHash}.bin`, `/${blobHash}.bin.extra`]) {
+    for (
+      const path of [
+        `/prefix-${blobHash}.bin`,
+        `/${blobHash}.bin.extra`,
+        `/%${blobHash.charCodeAt(0).toString(16)}${blobHash.slice(1)}.bin`,
+      ]
+    ) {
       const res = await app.fetch(new Request(`http://localhost${path}`));
       assertEquals(res.status, 404);
     }
