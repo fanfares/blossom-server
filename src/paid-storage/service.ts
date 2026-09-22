@@ -88,6 +88,7 @@ const STORAGE_PURCHASE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 export class PaidStorageService {
   private readonly payments: LightningQuoteProvider;
   private readonly treasury: TreasuryForwarder;
+  private readonly purchaseLocks = new Map<string, Promise<void>>();
 
   constructor(
     private readonly db: Client,
@@ -128,6 +129,24 @@ export class PaidStorageService {
     storageUnits: number,
     durationYears = 1,
     alignExpiry = false,
+  ): Promise<StoragePurchaseRecord> {
+    return await this.withPurchaseLock(
+      pubkey,
+      () =>
+        this.getOrCreatePurchaseUnlocked(
+          pubkey,
+          storageUnits,
+          durationYears,
+          alignExpiry,
+        ),
+    );
+  }
+
+  private async getOrCreatePurchaseUnlocked(
+    pubkey: string,
+    storageUnits: number,
+    durationYears: number,
+    alignExpiry: boolean,
   ): Promise<StoragePurchaseRecord> {
     if (!this.enabled) throw new Error("Paid storage is disabled");
     const now = this.now();
@@ -297,6 +316,16 @@ export class PaidStorageService {
   }
 
   async createExtensionPurchase(
+    pubkey: string,
+    durationYears: number,
+  ): Promise<StoragePurchaseRecord> {
+    return await this.withPurchaseLock(
+      pubkey,
+      () => this.createExtensionPurchaseUnlocked(pubkey, durationYears),
+    );
+  }
+
+  private async createExtensionPurchaseUnlocked(
     pubkey: string,
     durationYears: number,
   ): Promise<StoragePurchaseRecord> {
@@ -473,6 +502,28 @@ export class PaidStorageService {
       throw new RangeError(
         "Too many unpaid storage invoices are open; pay or expire one before creating another",
       );
+    }
+  }
+
+  /** Serialize quote creation and insertion for one buyer in this server instance. */
+  private async withPurchaseLock<T>(
+    pubkey: string,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.purchaseLocks.get(pubkey);
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.purchaseLocks.set(pubkey, current);
+    try {
+      await previous;
+      return await action();
+    } finally {
+      if (this.purchaseLocks.get(pubkey) === current) {
+        this.purchaseLocks.delete(pubkey);
+      }
+      release();
     }
   }
 

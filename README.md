@@ -82,6 +82,16 @@ use port `3000`.
 
 Start Blossom and build its landing-page bundle with one command:
 
+Create a local `.env` (which is ignored by Git) with unique admin credentials:
+
+```sh
+BLOSSOM_ADMIN_PASSWORD=<choose-a-password-of-at-least-12-characters>
+BLOSSOM_ADMIN_SESSION_SECRET=<generate-at-least-32-random-characters>
+```
+
+The same `.env` supplies `deno task dev:moderation`. Use distinct values from
+Cloudflare secrets and do not commit this file.
+
 ```sh
 deno task dev:local
 ```
