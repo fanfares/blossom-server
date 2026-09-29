@@ -30,8 +30,12 @@ import { UserDetailPage } from "../admin/user-detail-page.tsx";
 import { RulesPage } from "../admin/rules-page.tsx";
 import { ReportsPage } from "../admin/reports-page.tsx";
 import { ReportDetailPage } from "../admin/report-detail-page.tsx";
-import { lookupRelays$ } from "../admin/nostr-profile.ts";
-import { inspectAndIndexEvent } from "../admin/event-index.ts";
+import { fetchUserProfiles, lookupRelays$ } from "../admin/nostr-profile.ts";
+import {
+  fetchOwnerEvents,
+  indexEventsForAdmin,
+  inspectAndIndexEvent,
+} from "../admin/event-index.ts";
 import { registerAdminAuthentication } from "./admin-auth-routes.tsx";
 
 export function buildAdminRouter(
@@ -93,6 +97,14 @@ export function buildAdminRouter(
         [config.publicDomain || new URL(c.req.url).hostname, config.blobDomain]
           .filter(Boolean),
       );
+      const profiles = await fetchUserProfiles([result.event.pubkey]);
+      await indexEventsForAdmin(
+        db,
+        [result.event],
+        profiles,
+        [config.publicDomain || new URL(c.req.url).hostname, config.blobDomain]
+          .filter(Boolean),
+      );
       const notice =
         `Indexed event ${result.event.id}: ${result.linked.length} stored file(s), ${result.missing.length} missing.`;
       return c.redirect(
@@ -105,6 +117,39 @@ export function buildAdminRouter(
       const message = error instanceof Error
         ? error.message
         : "Event inspection failed.";
+      return c.redirect(
+        `/admin/blobs?notice=${encodeURIComponent(message)}`,
+        303,
+      );
+    }
+  });
+
+  app.post("/events/refresh", async (c) => {
+    try {
+      const users = await dbHandle.listAllUsers({ limit: 10_000 });
+      const pubkeys = users.map((user) => user.pubkey);
+      const [events, profiles] = await Promise.all([
+        fetchOwnerEvents(pubkeys, config.dashboard.lookupRelays),
+        fetchUserProfiles(pubkeys),
+      ]);
+      const result = await indexEventsForAdmin(
+        db,
+        events,
+        profiles,
+        [config.publicDomain || new URL(c.req.url).hostname, config.blobDomain]
+          .filter(Boolean),
+      );
+      const notice = `Refreshed ${result.events} verified event${
+        result.events === 1 ? "" : "s"
+      } and ${result.links} stored file link${result.links === 1 ? "" : "s"}.`;
+      return c.redirect(
+        `/admin/blobs?notice=${encodeURIComponent(notice)}`,
+        303,
+      );
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "Metadata refresh failed.";
       return c.redirect(
         `/admin/blobs?notice=${encodeURIComponent(message)}`,
         303,

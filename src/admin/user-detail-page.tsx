@@ -6,6 +6,8 @@ import type { Config } from "../config/schema.ts";
 import { nip19 } from "nostr-tools";
 import { fetchUserProfile } from "./nostr-profile.ts";
 import { fetchOwnerEvents, groupBlobsByEvents } from "./event-index.ts";
+import { EventCard } from "./event-card.tsx";
+import { getFanfaresProfileUrl } from "./fanfares-links.ts";
 import {
   AdminLayout,
   Badge,
@@ -104,6 +106,8 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
 
   // Resolved display name — prefer display_name, fall back to name.
   const displayName = profile?.display_name || profile?.name || null;
+  const publicDomain = config.publicDomain || "blossom.fanfares.live";
+  const blobBaseUrl = `https://${publicDomain.replace(/\/$/, "")}`;
 
   return (
     <AdminLayout title={`User ${truncateHash(pubkey)}`} section="users">
@@ -213,12 +217,12 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
             <dt class="text-xs text-gray-500 mb-0.5">Nostr profile</dt>
             <dd>
               <a
-                href={`https://njump.me/${npub || pubkey}`}
+                href={getFanfaresProfileUrl(pubkey, publicDomain)}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-xs text-cyan-200/75 transition-colors hover:text-cyan-100"
               >
-                View on njump.me ↗
+                View on Fanfares ↗
               </a>
             </dd>
           </div>
@@ -234,58 +238,12 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
             </p>
           </div>
           {grouped.groups.map((group) => (
-            <article class="rounded-2xl border border-cyan-400/20 bg-white/[0.04] p-5">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 class="font-semibold text-cyan-50">{group.title}</h3>
-                  <p class="mt-1 text-sm text-gray-400">
-                    {group.blobs.length}{" "}
-                    file{group.blobs.length === 1 ? "" : "s"} ·{" "}
-                    {formatBytes(group.totalSize)}
-                    {group.encryptedCount
-                      ? ` · ${group.encryptedCount} encrypted`
-                      : ""} · {formatDate(group.event.created_at)}
-                  </p>
-                </div>
-                <a
-                  href={`https://njump.me/${
-                    nip19.neventEncode({
-                      id: group.event.id,
-                      author: group.event.pubkey,
-                    })
-                  }`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-cyan-200/80 hover:text-cyan-100"
-                >
-                  View event ↗
-                </a>
-              </div>
-              <details class="mt-4 border-t border-white/10 pt-3">
-                <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">
-                  File details
-                </summary>
-                <div class="mt-3 space-y-2">
-                  {group.blobs.map(({ blob, reference }) => (
-                    <div class="flex flex-wrap items-center gap-2 text-sm">
-                      <a
-                        href={`/admin/blobs/${blob.sha256}`}
-                        class="text-cyan-200/75 hover:text-cyan-100"
-                      >
-                        {reference.name || reference.role ||
-                          truncateHash(blob.sha256)}
-                      </a>
-                      <Badge color={reference.encrypted ? "yellow" : "green"}>
-                        {reference.encrypted ? "encrypted" : "public"}
-                      </Badge>
-                      <span class="text-gray-500">
-                        {formatBytes(blob.size)} · {blob.type ?? "unknown"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            </article>
+            <EventCard
+              group={group}
+              profile={profile ?? undefined}
+              publicDomain={publicDomain}
+              blobBaseUrl={blobBaseUrl}
+            />
           ))}
         </section>
       )}

@@ -2,8 +2,9 @@ import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
-import { nip19 } from "nostr-tools";
 import { fetchOwnerEvents, groupBlobsByEvents } from "./event-index.ts";
+import { fetchUserProfiles } from "./nostr-profile.ts";
+import { EventCard } from "./event-card.tsx";
 import {
   AdminLayout,
   Badge,
@@ -78,6 +79,9 @@ export const BlobsPage: FC<BlobsPageProps> = async (
     ownerPubkeys,
     config.dashboard.lookupRelays,
   );
+  const profiles = await fetchUserProfiles([
+    ...new Set(events.map((event) => event.pubkey)),
+  ]);
   const grouped = groupBlobsByEvents(
     blobs,
     events,
@@ -92,6 +96,9 @@ export const BlobsPage: FC<BlobsPageProps> = async (
   baseParams.set("sort", sort);
   baseParams.set("direction", direction);
   const baseUrl = `/admin/blobs?${baseParams.toString()}`;
+  const blobBaseUrl = config.publicDomain
+    ? `https://${config.publicDomain.replace(/\/$/, "")}`
+    : `http://${host}`;
 
   return (
     <AdminLayout title="Blobs" section="blobs">
@@ -132,6 +139,21 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         </p>
       </form>
 
+      <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3">
+        <p class="text-xs leading-5 text-gray-500">
+          Refresh verified relay metadata to update titles, file names, and
+          author profiles used by search.
+        </p>
+        <form method="post" action="/admin/events/refresh">
+          <button
+            type="submit"
+            class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-gray-300 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"
+          >
+            Refresh event metadata
+          </button>
+        </form>
+      </div>
+
       {/* Search form */}
       <form
         method="get"
@@ -142,7 +164,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
           type="text"
           name="q"
           value={q}
-          placeholder="Search hash, MIME, pubkey, or event ID…"
+          placeholder="Search title, file, author, NIP-05, hash, MIME, or event…"
           class="max-w-md flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
         <select
@@ -215,64 +237,12 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                   </p>
                 </div>
                 {grouped.groups.map((group) => (
-                  <article class="rounded-2xl border border-cyan-400/20 bg-white/[0.04] p-5">
-                    <div class="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 class="font-semibold text-cyan-50">
-                          {group.title}
-                        </h3>
-                        <p class="mt-1 text-sm text-gray-400">
-                          {formatBytes(group.totalSize)} · {group.blobs.length}
-                          {" "}
-                          stored file{group.blobs.length === 1 ? "" : "s"}
-                          {group.encryptedCount > 0
-                            ? ` · ${group.encryptedCount} encrypted`
-                            : ""} · published{" "}
-                          {formatDate(group.event.created_at)}
-                        </p>
-                      </div>
-                      <a
-                        href={`https://njump.me/${
-                          nip19.neventEncode({
-                            id: group.event.id,
-                            author: group.event.pubkey,
-                          })
-                        }`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-sm text-cyan-200/80 hover:text-cyan-100"
-                      >
-                        View event ↗
-                      </a>
-                    </div>
-                    <details class="mt-4 border-t border-white/10 pt-3">
-                      <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">
-                        File details
-                      </summary>
-                      <div class="mt-3 space-y-2">
-                        {group.blobs.map(({ blob, reference }) => (
-                          <div class="flex flex-wrap items-center gap-2 text-sm">
-                            <a
-                              href={`/admin/blobs/${blob.sha256}`}
-                              class="font-mono text-cyan-200/75 hover:text-cyan-100"
-                            >
-                              {reference.name || reference.role ||
-                                truncateHash(blob.sha256)}
-                            </a>
-                            <Badge
-                              color={reference.encrypted ? "yellow" : "green"}
-                            >
-                              {reference.encrypted ? "encrypted" : "public"}
-                            </Badge>
-                            <span class="text-gray-500">
-                              {formatBytes(blob.size)} ·{" "}
-                              {blob.type ?? "unknown"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  </article>
+                  <EventCard
+                    group={group}
+                    profile={profiles.get(group.event.pubkey)}
+                    publicDomain={config.publicDomain || host.split(":")[0]}
+                    blobBaseUrl={blobBaseUrl}
+                  />
                 ))}
               </section>
             )}

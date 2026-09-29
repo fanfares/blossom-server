@@ -1,5 +1,7 @@
 import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
+import { nip19 } from "nostr-tools";
+import { fetchUserProfiles } from "./nostr-profile.ts";
 import {
   AdminLayout,
   Badge,
@@ -11,7 +13,6 @@ import {
   Td,
   Th,
   Thead,
-  truncateHash,
 } from "./layout.tsx";
 
 const PAGE_SIZE = 50;
@@ -30,6 +31,7 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
     db.listAllUsers({ filter, limit: PAGE_SIZE, offset }),
     db.countUsers(filter),
   ]);
+  const profiles = await fetchUserProfiles(users.map((user) => user.pubkey));
 
   const baseUrl = q
     ? `/admin/users?q=${encodeURIComponent(q)}`
@@ -54,7 +56,7 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
           type="text"
           name="q"
           value={q}
-          placeholder="Search by pubkey…"
+          placeholder="Search by name, NIP-05, or pubkey…"
           class="max-w-md flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
         <button
@@ -93,18 +95,45 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
               <Tbody>
                 {users.map((user) => {
                   const blobCount = user.blobs.length;
+                  const profile = profiles.get(user.pubkey);
+                  const displayName = profile?.displayName ||
+                    profile?.display_name || profile?.name;
+                  const picture = profile?.picture || profile?.image;
                   return (
                     <tr
                       key={user.pubkey}
                       class="transition-colors hover:bg-white/[0.025]"
                     >
-                      <Td mono>
+                      <Td>
                         <a
                           href={`/admin/users/${user.pubkey}`}
-                          title={user.pubkey}
-                          class="text-cyan-200/80 transition-colors hover:text-cyan-100"
+                          class="flex items-center gap-3"
                         >
-                          {truncateHash(user.pubkey)}
+                          {picture
+                            ? (
+                              <img
+                                src={picture}
+                                alt=""
+                                class="h-9 w-9 rounded-full bg-gray-800 object-cover"
+                                loading="lazy"
+                              />
+                            )
+                            : (
+                              <span class="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-xs text-gray-400">
+                                {displayName?.slice(0, 1).toUpperCase() || "?"}
+                              </span>
+                            )}
+                          <span class="min-w-0">
+                            <span class="block truncate text-sm font-semibold text-gray-200">
+                              {displayName || "Unknown author"}
+                            </span>
+                            <span class="block truncate font-mono text-xs text-gray-600">
+                              {profile?.nip05 ||
+                                `${
+                                  nip19.npubEncode(user.pubkey).slice(0, 16)
+                                }…`}
+                            </span>
+                          </span>
                         </a>
                       </Td>
                       <Td>

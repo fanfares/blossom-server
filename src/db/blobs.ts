@@ -327,10 +327,28 @@ export async function listAllBlobs(
     ) OR EXISTS (
       SELECT 1 FROM admin_event_blobs aeq
       JOIN admin_events eq ON eq.event_id = aeq.event_id
-      WHERE aeq.blob = b.sha256 AND (eq.event_id LIKE ? OR eq.pubkey LIKE ?)
+      LEFT JOIN admin_event_search esq ON esq.event_id = eq.event_id
+      LEFT JOIN admin_event_blob_metadata ebmq
+        ON ebmq.event_id = aeq.event_id AND ebmq.blob = aeq.blob
+      WHERE aeq.blob = b.sha256 AND (
+        eq.event_id LIKE ? OR eq.pubkey LIKE ? OR esq.title LIKE ? OR
+        esq.author_name LIKE ? OR esq.author_nip05 LIKE ? OR
+        esq.search_text LIKE ? OR ebmq.name LIKE ?
+      )
     ))`);
     const query = `%${opts.filter.q}%`;
-    args.push(query, query, query, query, query);
+    args.push(
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+    );
   }
   if (opts.filter?.visibility === "encrypted") {
     conditions.push(
@@ -424,10 +442,28 @@ export async function countBlobs(
       SELECT 1 FROM owners oq WHERE oq.blob = b.sha256 AND oq.pubkey LIKE ?
     ) OR EXISTS (
       SELECT 1 FROM admin_event_blobs aeq JOIN admin_events eq ON eq.event_id = aeq.event_id
-      WHERE aeq.blob = b.sha256 AND (eq.event_id LIKE ? OR eq.pubkey LIKE ?)
+      LEFT JOIN admin_event_search esq ON esq.event_id = eq.event_id
+      LEFT JOIN admin_event_blob_metadata ebmq
+        ON ebmq.event_id = aeq.event_id AND ebmq.blob = aeq.blob
+      WHERE aeq.blob = b.sha256 AND (
+        eq.event_id LIKE ? OR eq.pubkey LIKE ? OR esq.title LIKE ? OR
+        esq.author_name LIKE ? OR esq.author_nip05 LIKE ? OR
+        esq.search_text LIKE ? OR ebmq.name LIKE ?
+      )
     ))`);
     const query = `%${filter.q}%`;
-    args.push(query, query, query, query, query);
+    args.push(
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+    );
   }
   if (filter?.visibility === "encrypted") {
     conditions.push(
@@ -489,8 +525,15 @@ export async function listAllUsers(
   const args: (string | number)[] = [];
 
   if (opts.filter?.q) {
-    conditions.push("o.pubkey LIKE ?");
-    args.push(`%${opts.filter.q}%`);
+    conditions.push(`(o.pubkey LIKE ? OR EXISTS (
+      SELECT 1 FROM admin_events ue
+      JOIN admin_event_search us ON us.event_id = ue.event_id
+      WHERE ue.pubkey = o.pubkey AND (
+        us.author_name LIKE ? OR us.author_nip05 LIKE ? OR us.search_text LIKE ?
+      )
+    ))`);
+    const query = `%${opts.filter.q}%`;
+    args.push(query, query, query, query);
   }
   if (opts.filter?.pubkey) {
     conditions.push("o.pubkey = ?");
@@ -541,11 +584,18 @@ export async function countUsers(
   const args: (string | number)[] = [];
 
   if (filter?.q) {
-    conditions.push("pubkey LIKE ?");
-    args.push(`%${filter.q}%`);
+    conditions.push(`(o.pubkey LIKE ? OR EXISTS (
+      SELECT 1 FROM admin_events ue
+      JOIN admin_event_search us ON us.event_id = ue.event_id
+      WHERE ue.pubkey = o.pubkey AND (
+        us.author_name LIKE ? OR us.author_nip05 LIKE ? OR us.search_text LIKE ?
+      )
+    ))`);
+    const query = `%${filter.q}%`;
+    args.push(query, query, query, query);
   }
   if (filter?.pubkey) {
-    conditions.push("pubkey = ?");
+    conditions.push("o.pubkey = ?");
     args.push(filter.pubkey);
   }
 
@@ -553,7 +603,7 @@ export async function countUsers(
     ? `WHERE ${conditions.join(" AND ")}`
     : "";
   const rs = await db.execute({
-    sql: `SELECT COUNT(DISTINCT pubkey) FROM owners ${where}`,
+    sql: `SELECT COUNT(DISTINCT o.pubkey) FROM owners o ${where}`,
     args,
   });
   return (rs.rows[0]?.[0] as number) ?? 0;

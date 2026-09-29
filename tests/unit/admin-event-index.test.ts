@@ -10,7 +10,7 @@ import { nip19 } from "nostr-tools";
 import type { NostrEvent } from "nostr-tools";
 import { join } from "@std/path";
 import { initDb } from "../../src/db/client.ts";
-import { insertBlob, listAllBlobs } from "../../src/db/blobs.ts";
+import { insertBlob, listAllBlobs, listAllUsers } from "../../src/db/blobs.ts";
 import {
   eventIdentifierToFilter,
   extractEventBlobReferences,
@@ -148,6 +148,23 @@ Deno.test("admin blob queries search and filter persisted event relationships", 
           "INSERT INTO admin_event_blobs (event_id, blob, encrypted) VALUES (?, ?, 1)",
         args: [eventId, hash],
       },
+      {
+        sql:
+          "INSERT INTO admin_event_search (event_id, title, author_name, author_nip05, search_text, refreshed_at) VALUES (?, ?, ?, ?, ?, ?)",
+        args: [
+          eventId,
+          "A searchable episode",
+          "Alice Creator",
+          "alice@example.com",
+          "A searchable episode Alice Creator alice@example.com",
+          1_002,
+        ],
+      },
+      {
+        sql:
+          "INSERT INTO admin_event_blob_metadata (event_id, blob, name) VALUES (?, ?, ?)",
+        args: [eventId, hash, "Chapter One"],
+      },
     ]);
     const rows = await listAllBlobs(db, {
       filter: { q: eventId, visibility: "encrypted" },
@@ -162,6 +179,25 @@ Deno.test("admin blob queries search and filter persisted event relationships", 
     assertEquals(
       await listAllBlobs(db, { filter: { visibility: "public" } }),
       [],
+    );
+    for (
+      const query of [
+        "searchable episode",
+        "Alice Creator",
+        "alice@example.com",
+        "Chapter One",
+      ]
+    ) {
+      assertEquals(
+        (await listAllBlobs(db, { filter: { q: query } })).length,
+        1,
+        query,
+      );
+    }
+    assertEquals(
+      (await listAllUsers(db, { filter: { q: "Alice Creator" } }))[0]
+        .pubkey,
+      pubkey,
     );
   } finally {
     db.close();

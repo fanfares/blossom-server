@@ -11,7 +11,7 @@ const pool = new SimplePool();
 
 export interface IndexedEventResult {
   event: NostrEvent;
-  linked: Array<{ sha256: string; encrypted: boolean }>;
+  linked: EventBlobReference[];
   missing: string[];
 }
 
@@ -30,6 +30,34 @@ export interface AdminEventGroup {
   blobs: Array<{ blob: AdminBlobRecord; reference: EventBlobReference }>;
   totalSize: number;
   encryptedCount: number;
+}
+
+export interface AdminProfileSummary {
+  name?: string;
+  display_name?: string;
+  displayName?: string;
+  picture?: string;
+  image?: string;
+  nip05?: string;
+  about?: string;
+}
+
+export interface IndexedEventsSummary {
+  events: number;
+  links: number;
+}
+
+/** Human-readable title used by cards and the durable moderation search index. */
+export function getEventTitle(event: NostrEvent): string {
+  return event.tags.find((tag) => tag[0] === "title")?.[1] ||
+    event.tags.find((tag) => tag[0] === "name")?.[1] ||
+    event.tags.find((tag) => tag[0] === "subject")?.[1] ||
+    `Event ${event.id.slice(0, 12)}…`;
+}
+
+/** Select the same author name precedence used by the Fanfares client. */
+export function getProfileName(profile?: AdminProfileSummary): string {
+  return profile?.displayName || profile?.display_name || profile?.name || "";
 }
 
 /** Converts a hex, note, nevent, or naddr identifier into a relay query filter. */
@@ -145,10 +173,7 @@ export function groupBlobsByEvents(
     });
     if (matched.length === 0) return [];
     matched.forEach(({ blob }) => groupedHashes.add(blob.sha256.toLowerCase()));
-    const title = event.tags.find((tag) => tag[0] === "title")?.[1] ||
-      event.tags.find((tag) => tag[0] === "name")?.[1] ||
-      event.tags.find((tag) => tag[0] === "subject")?.[1] ||
-      `Event ${event.id.slice(0, 12)}…`;
+    const title = getEventTitle(event);
     return [{
       event,
       title,
@@ -165,6 +190,93 @@ export function groupBlobsByEvents(
       !groupedHashes.has(blob.sha256.toLowerCase())
     ),
   };
+}
+
+/** Persist verified relay events and their searchable moderation metadata. */
+export async function indexEventsForAdmin(
+  db: Client,
+  events: NostrEvent[],
+  profiles: ReadonlyMap<string, AdminProfileSummary | undefined>,
+  publicDomain: string | string[],
+): Promise<IndexedEventsSummary> {
+  let indexedEvents = 0;
+  let indexedLinks = 0;
+  for (const event of events) {
+    if (!verifyEvent(event)) continue;
+    const references = extractEventBlobReferences(event, publicDomain);
+    if (references.length === 0) continue;
+    const profile = profiles.get(event.pubkey);
+    const title = getEventTitle(event);
+    const authorName = getProfileName(profile);
+    const summary = event.tags.find((tag) => tag[0] === "summary")?.[1] || "";
+    const searchText = [
+      title,
+      summary,
+      event.content.slice(0, 4_000),
+      authorName,
+      profile?.nip05 ?? "",
+      profile?.about?.slice(0, 1_000) ?? "",
+      ...references.map((reference) => reference.name ?? ""),
+    ].filter(Boolean).join(" ").slice(0, 8_000);
+
+    await db.execute("BEGIN");
+    try {
+      await db.execute({
+        sql:
+          `INSERT OR REPLACE INTO admin_events (event_id, pubkey, kind, created_at, indexed_at)
+            VALUES (?, ?, ?, ?, unixepoch())`,
+        args: [event.id, event.pubkey, event.kind, event.created_at],
+      });
+      await db.execute({
+        sql: "DELETE FROM admin_event_blobs WHERE event_id = ?",
+        args: [event.id],
+      });
+      for (const reference of references) {
+        const result = await db.execute({
+          sql:
+            `INSERT OR IGNORE INTO admin_event_blobs (event_id, blob, encrypted)
+              SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?)`,
+          args: [
+            event.id,
+            reference.sha256,
+            reference.encrypted ? 1 : 0,
+            reference.sha256,
+          ],
+        });
+        if ((result.rowsAffected ?? 0) > 0) {
+          indexedLinks += 1;
+          await db.execute({
+            sql:
+              `INSERT OR REPLACE INTO admin_event_blob_metadata (event_id, blob, name)
+                VALUES (?, ?, ?)`,
+            args: [
+              event.id,
+              reference.sha256,
+              reference.name ?? reference.role ?? "",
+            ],
+          });
+        }
+      }
+      await db.execute({
+        sql: `INSERT OR REPLACE INTO admin_event_search
+            (event_id, title, author_name, author_nip05, search_text, refreshed_at)
+            VALUES (?, ?, ?, ?, ?, unixepoch())`,
+        args: [
+          event.id,
+          title,
+          authorName,
+          profile?.nip05 ?? "",
+          searchText,
+        ],
+      });
+      await db.execute("COMMIT");
+      indexedEvents += 1;
+    } catch (error) {
+      await db.execute("ROLLBACK");
+      throw error;
+    }
+  }
+  return { events: indexedEvents, links: indexedLinks };
 }
 
 /** Fetches one signed event, persists its existing blob links, and reports missing files. */
@@ -215,6 +327,31 @@ export async function inspectAndIndexEvent(
       });
       if ((result.rowsAffected ?? 0) > 0) linked.push(reference);
       else missing.push(reference.sha256);
+    }
+    const title = getEventTitle(event);
+    const searchText = [
+      title,
+      event.tags.find((tag) => tag[0] === "summary")?.[1] ?? "",
+      event.content.slice(0, 4_000),
+      ...references.map((reference) => reference.name ?? ""),
+    ].filter(Boolean).join(" ").slice(0, 8_000);
+    await db.execute({
+      sql: `INSERT OR REPLACE INTO admin_event_search
+          (event_id, title, author_name, author_nip05, search_text, refreshed_at)
+          VALUES (?, ?, '', '', ?, unixepoch())`,
+      args: [event.id, title, searchText],
+    });
+    for (const reference of linked) {
+      await db.execute({
+        sql:
+          `INSERT OR REPLACE INTO admin_event_blob_metadata (event_id, blob, name)
+            VALUES (?, ?, ?)`,
+        args: [
+          event.id,
+          reference.sha256,
+          reference.name ?? reference.role ?? "",
+        ],
+      });
     }
     await db.execute("COMMIT");
   } catch (error) {
