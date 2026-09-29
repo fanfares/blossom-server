@@ -188,7 +188,7 @@ Deno.test({
       );
       assertEquals(dashboardResponse.status, 200);
       const dashboardHtml = await dashboardResponse.text();
-      assertStringIncludes(dashboardHtml, "Event indexing tools");
+      assertStringIncludes(dashboardHtml, "Refresh event metadata");
       assertEquals(dashboardHtml.includes("/admin/api/blobs/"), false);
 
       for (

@@ -177,15 +177,15 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         )}
       </form>
 
-      <details class="mb-5 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2">
-        <summary class="cursor-pointer text-xs font-medium text-gray-500 transition-colors hover:text-gray-300">
-          Event indexing tools
-        </summary>
-        <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.07] pt-3">
+      <div class="mb-6 flex flex-wrap items-start justify-end gap-x-5 gap-y-3 px-1">
+        <details class="group min-w-0">
+          <summary class="cursor-pointer list-none text-xs font-semibold text-gray-500 transition-colors hover:text-cyan-100 [&::-webkit-details-marker]:hidden">
+            Inspect a specific event
+          </summary>
           <form
             method="post"
             action="/admin/events/inspect"
-            class="flex min-w-64 flex-1 gap-2"
+            class="mt-3 flex min-w-72 max-w-xl gap-2"
           >
             <input
               type="text"
@@ -196,21 +196,21 @@ export const BlobsPage: FC<BlobsPageProps> = async (
             />
             <button
               type="submit"
-              class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-gray-300 hover:border-cyan-400/25 hover:text-cyan-100"
+              class="rounded-full bg-white/[0.07] px-4 py-2 text-xs font-semibold text-gray-300 transition-colors hover:bg-cyan-400/10 hover:text-cyan-100"
             >
               Inspect
             </button>
           </form>
-          <form method="post" action="/admin/events/refresh">
-            <button
-              type="submit"
-              class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-gray-300 hover:border-cyan-400/25 hover:text-cyan-100"
-            >
-              Refresh metadata
-            </button>
-          </form>
-        </div>
-      </details>
+        </details>
+        <form method="post" action="/admin/events/refresh">
+          <button
+            type="submit"
+            class="text-xs font-semibold text-gray-500 transition-colors hover:text-cyan-100"
+          >
+            Refresh event metadata
+          </button>
+        </form>
+      </div>
 
       {blobs.length === 0
         ? (

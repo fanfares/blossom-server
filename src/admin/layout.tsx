@@ -46,37 +46,44 @@ export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
       <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.10),_transparent_24%),radial-gradient(circle_at_bottom,_rgba(14,165,233,0.06),_transparent_34%)]" />
       <div class="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:72px_72px] opacity-20 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
       <main class="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-        <header class="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-sm">
-          <div class="relative p-4 sm:px-5 sm:py-4">
+        <header class="mb-8 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+          <div class="relative p-6 sm:p-8">
             <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.10),_transparent_25%)]" />
-            <div class="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div class="relative">
               <div>
-                <div class="text-[11px] uppercase tracking-[0.35em] text-cyan-200/55">
-                  Fanfares · moderation
+                <div class="text-[11px] uppercase tracking-[0.35em] text-cyan-200/60">
+                  Fanfares · secured moderation
                 </div>
-                <h1 class="mt-1 text-2xl font-semibold tracking-tight text-white">
+                <h1 class="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
                   Blossom Admin
                 </h1>
+                <p class="mt-3 max-w-2xl text-sm leading-6 text-gray-300">
+                  Review stored media, publishers, policies, and reports.
+                </p>
               </div>
-              <nav aria-label="Admin sections">
+              <nav aria-label="Admin sections" class="mt-6">
                 <ul class="flex flex-wrap items-center gap-2">
                   {NAV_ITEMS.map((item) => (
                     <li key={item.id}>
                       <a
                         href={item.href}
                         class={item.id === section
-                          ? "inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.14)]"
-                          : "inline-flex rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-gray-300 transition-colors hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-100"}
+                          ? "inline-flex h-10 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 text-sm font-semibold leading-none text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]"
+                          : "inline-flex h-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold leading-none text-gray-300 transition-colors hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-100"}
                       >
                         {item.label}
                       </a>
                     </li>
                   ))}
-                  <li>
-                    <form method="post" action="/admin/logout">
+                  <li class="flex h-10 items-stretch">
+                    <form
+                      method="post"
+                      action="/admin/logout"
+                      class="flex h-10 items-stretch"
+                    >
                       <button
                         type="submit"
-                        class="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-gray-400 transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+                        class="inline-flex h-10 appearance-none items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-4 text-sm font-semibold leading-none text-gray-300 transition-colors hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-100"
                       >
                         Sign out
                       </button>
