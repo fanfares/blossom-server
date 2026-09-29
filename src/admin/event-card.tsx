@@ -2,6 +2,7 @@
 import type { FC } from "@hono/hono/jsx";
 import { nip19 } from "nostr-tools";
 import type { AdminEventGroup, AdminProfileSummary } from "./event-index.ts";
+import { getEventKindLabel } from "./event-index.ts";
 import {
   getFanfaresEventUrl,
   getFanfaresProfileUrl,
@@ -68,10 +69,9 @@ export const EventCard: FC<EventCardProps> = (
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="min-w-0 flex-1">
               <div class="mb-3 flex flex-wrap items-center gap-2">
-                <Badge color="blue">kind {group.event.kind}</Badge>
-                {group.encryptedCount > 0
-                  ? <Badge color="yellow">mixed visibility</Badge>
-                  : <Badge color="green">public files</Badge>}
+                <Badge color="blue">
+                  {getEventKindLabel(group.event.kind)}
+                </Badge>
               </div>
               <h3 class="text-lg font-semibold leading-6 text-cyan-50">
                 {group.title}

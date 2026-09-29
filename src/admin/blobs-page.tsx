@@ -115,56 +115,16 @@ export const BlobsPage: FC<BlobsPageProps> = async (
       )}
 
       <form
-        method="post"
-        action="/admin/events/inspect"
-        class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm"
-      >
-        <input
-          type="text"
-          name="event"
-          required
-          placeholder="Event hex, note, nevent, or naddr…"
-          class="min-w-72 flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35 focus:ring-1 focus:ring-cyan-300/20"
-        />
-        <button
-          type="submit"
-          class="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-5 py-3 text-sm font-semibold text-cyan-50 transition-colors hover:bg-cyan-300/20"
-        >
-          Inspect event
-        </button>
-        <p class="basis-full text-xs leading-5 text-gray-500">
-          Fetches the signed event from configured relays and links its Blossom
-          files for moderation.
-        </p>
-      </form>
-
-      <div class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3">
-        <p class="text-xs leading-5 text-gray-500">
-          Refresh verified relay metadata to update titles, file names, and
-          author profiles used by search.
-        </p>
-        <form method="post" action="/admin/events/refresh">
-          <button
-            type="submit"
-            class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-gray-300 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"
-          >
-            Refresh event metadata
-          </button>
-        </form>
-      </div>
-
-      {/* Search form */}
-      <form
         method="get"
         action="/admin/blobs"
-        class="mb-5 flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4"
+        class="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] p-3"
       >
         <input
           type="text"
           name="q"
           value={q}
           placeholder="Search title, file, author, NIP-05, hash, MIME, or event…"
-          class="max-w-md flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
+          class="min-w-64 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
         <select
           name="visibility"
@@ -216,6 +176,41 @@ export const BlobsPage: FC<BlobsPageProps> = async (
           </a>
         )}
       </form>
+
+      <details class="mb-5 rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+        <summary class="cursor-pointer text-xs font-medium text-gray-500 transition-colors hover:text-gray-300">
+          Event indexing tools
+        </summary>
+        <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.07] pt-3">
+          <form
+            method="post"
+            action="/admin/events/inspect"
+            class="flex min-w-64 flex-1 gap-2"
+          >
+            <input
+              type="text"
+              name="event"
+              required
+              placeholder="Event hex, note, nevent, or naddr…"
+              class="min-w-48 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-700 focus:border-cyan-300/35"
+            />
+            <button
+              type="submit"
+              class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-gray-300 hover:border-cyan-400/25 hover:text-cyan-100"
+            >
+              Inspect
+            </button>
+          </form>
+          <form method="post" action="/admin/events/refresh">
+            <button
+              type="submit"
+              class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-gray-300 hover:border-cyan-400/25 hover:text-cyan-100"
+            >
+              Refresh metadata
+            </button>
+          </form>
+        </div>
+      </details>
 
       {blobs.length === 0
         ? (

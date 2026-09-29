@@ -66,10 +66,6 @@ export async function fetchUserProfile(
     });
     return profile;
   } catch {
-    profileCache.set(pubkey, {
-      expiresAt: Date.now() + PROFILE_CACHE_MS,
-      profile: null,
-    });
     return null;
   }
 }

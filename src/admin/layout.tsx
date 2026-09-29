@@ -46,48 +46,44 @@ export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
       <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.10),_transparent_24%),radial-gradient(circle_at_bottom,_rgba(14,165,233,0.06),_transparent_34%)]" />
       <div class="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:72px_72px] opacity-20 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
       <main class="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-        <header class="mb-8 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-sm">
-          <div class="relative p-5 sm:p-7">
+        <header class="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-[0_0_0_1px_rgba(255,255,255,0.02),0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur-sm">
+          <div class="relative p-4 sm:px-5 sm:py-4">
             <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.10),_transparent_25%)]" />
-            <div class="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div class="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <div class="text-[11px] uppercase tracking-[0.35em] text-cyan-200/55">
-                  Fanfares · secured moderation
+                  Fanfares · moderation
                 </div>
-                <h1 class="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                <h1 class="mt-1 text-2xl font-semibold tracking-tight text-white">
                   Blossom Admin
                 </h1>
-                <p class="mt-2 max-w-xl text-sm leading-6 text-gray-400">
-                  Inspect storage, trace Nostr events, and moderate uploaded
-                  media from one private workspace.
-                </p>
               </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <nav aria-label="Admin sections">
-                  <ul class="flex flex-wrap gap-2">
-                    {NAV_ITEMS.map((item) => (
-                      <li key={item.id}>
-                        <a
-                          href={item.href}
-                          class={item.id === section
-                            ? "inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.14)]"
-                            : "inline-flex rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-gray-300 transition-colors hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-100"}
-                        >
-                          {item.label}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </nav>
-                <form method="post" action="/admin/logout">
-                  <button
-                    type="submit"
-                    class="rounded-full border border-white/10 px-4 py-2 text-sm text-gray-400 transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
-                  >
-                    Sign out
-                  </button>
-                </form>
-              </div>
+              <nav aria-label="Admin sections">
+                <ul class="flex flex-wrap items-center gap-2">
+                  {NAV_ITEMS.map((item) => (
+                    <li key={item.id}>
+                      <a
+                        href={item.href}
+                        class={item.id === section
+                          ? "inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_0_1px_rgba(34,211,238,0.14)]"
+                          : "inline-flex rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-gray-300 transition-colors hover:border-cyan-400/30 hover:bg-cyan-400/10 hover:text-cyan-100"}
+                      >
+                        {item.label}
+                      </a>
+                    </li>
+                  ))}
+                  <li>
+                    <form method="post" action="/admin/logout">
+                      <button
+                        type="submit"
+                        class="inline-flex rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-gray-400 transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+                      >
+                        Sign out
+                      </button>
+                    </form>
+                  </li>
+                </ul>
+              </nav>
             </div>
           </div>
         </header>
@@ -109,14 +105,11 @@ export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
 export const PageHeader: FC<{ title: string; subtitle?: string }> = (
   { title, subtitle },
 ) => (
-  <div class="mb-6">
-    <div class="text-[11px] uppercase tracking-[0.35em] text-cyan-200/55">
-      Moderation workspace
-    </div>
-    <h2 class="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+  <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+    <h2 class="text-2xl font-semibold tracking-tight text-white">
       {title}
     </h2>
-    {subtitle && <p class="mt-2 text-sm text-gray-400">{subtitle}</p>}
+    {subtitle && <p class="text-sm text-gray-500">{subtitle}</p>}
   </div>
 );
 

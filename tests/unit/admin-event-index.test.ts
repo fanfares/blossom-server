@@ -7,15 +7,64 @@
 
 import { assertEquals } from "@std/assert";
 import { nip19 } from "nostr-tools";
+import { finalizeEvent, generateSecretKey } from "nostr-tools/pure";
 import type { NostrEvent } from "nostr-tools";
+import type { Client } from "@libsql/client";
 import { join } from "@std/path";
 import { initDb } from "../../src/db/client.ts";
 import { insertBlob, listAllBlobs, listAllUsers } from "../../src/db/blobs.ts";
 import {
   eventIdentifierToFilter,
   extractEventBlobReferences,
+  getEventKindLabel,
   groupBlobsByEvents,
+  indexEventsForAdmin,
 } from "../../src/admin/event-index.ts";
+
+Deno.test("event kinds use the same content labels as the Fanfares client", () => {
+  assertEquals(getEventKindLabel(30023), "Article");
+  assertEquals(getEventKindLabel(31337), "Music Track");
+  assertEquals(getEventKindLabel(36787), "Music Track");
+  assertEquals(getEventKindLabel(31338), "Podcast Episode");
+  assertEquals(getEventKindLabel(31339), "Audiobook");
+  assertEquals(getEventKindLabel(42), "Kind 42");
+});
+
+Deno.test("metadata refresh uses one atomic write batch", async () => {
+  const hash = "a".repeat(64);
+  const event = finalizeEvent({
+    kind: 31338,
+    created_at: 1_000,
+    content: "Episode summary",
+    tags: [["title", "A searchable episode"], [
+      "imeta",
+      `url https://blossom.example/${hash}.bin`,
+      "name Chapter One",
+    ]],
+  }, generateSecretKey());
+  let batches = 0;
+  const db = {
+    batch: (statements: unknown[]) => {
+      batches += 1;
+      return Promise.resolve(statements.map(() => ({ rowsAffected: 1 })));
+    },
+    execute: () => {
+      throw new Error(
+        "metadata indexing must not use connection-level SQL transactions",
+      );
+    },
+  } as unknown as Client;
+
+  const result = await indexEventsForAdmin(
+    db,
+    [event],
+    new Map([[event.pubkey, { name: "fftester" }]]),
+    "blossom.example",
+  );
+
+  assertEquals(batches, 1);
+  assertEquals(result, { events: 1, links: 1 });
+});
 
 Deno.test("event identifiers support hex, note, nevent, and naddr searches", () => {
   const id = "1".repeat(64);

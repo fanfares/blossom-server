@@ -3,6 +3,7 @@ import type { IDbHandle } from "../db/handle.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import { nip19 } from "nostr-tools";
+import { getEventKindLabel } from "./event-index.ts";
 import {
   AdminLayout,
   Badge,
@@ -159,7 +160,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                         {event.id}
                       </a>
                       <div class="mt-1 flex gap-2 text-xs text-gray-500">
-                        <span>kind {event.kind}</span>
+                        <span>{getEventKindLabel(event.kind)}</span>
                         <Badge color={event.encrypted ? "yellow" : "green"}>
                           {event.encrypted ? "encrypted" : "public"}
                         </Badge>

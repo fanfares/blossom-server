@@ -65,6 +65,22 @@ export function getProfileName(profile?: AdminProfileSummary): string {
   return profile?.displayName || profile?.display_name || profile?.name || "";
 }
 
+/** Mirrors the content labels used by the Fanfares client. */
+export function getEventKindLabel(kind: number): string {
+  const labels: Record<number, string> = {
+    1: "Note",
+    1338: "Podcast Announcement",
+    1808: "Audio Stem",
+    30023: "Article",
+    31337: "Music Track",
+    31338: "Podcast Episode",
+    31339: "Audiobook",
+    32123: "Wavlake Track",
+    36787: "Music Track",
+  };
+  return labels[kind] ?? `Kind ${kind}`;
+}
+
 /** Converts a hex, note, nevent, or naddr identifier into a relay query filter. */
 export function eventIdentifierToFilter(
   identifier: string,
@@ -247,20 +263,26 @@ export async function indexEventsForAdmin(
       ...references.map((reference) => reference.name ?? ""),
     ].filter(Boolean).join(" ").slice(0, 8_000);
 
-    await db.execute("BEGIN");
-    try {
-      await db.execute({
+    const statements: Array<{
+      sql: string;
+      args: Array<string | number>;
+    }> = [
+      {
         sql:
           `INSERT OR REPLACE INTO admin_events (event_id, pubkey, kind, created_at, indexed_at)
             VALUES (?, ?, ?, ?, unixepoch())`,
         args: [event.id, event.pubkey, event.kind, event.created_at],
-      });
-      await db.execute({
+      },
+      {
         sql: "DELETE FROM admin_event_blobs WHERE event_id = ?",
         args: [event.id],
-      });
-      for (const reference of references) {
-        const result = await db.execute({
+      },
+    ];
+    const linkResultIndexes: number[] = [];
+    for (const reference of references) {
+      linkResultIndexes.push(statements.length);
+      statements.push(
+        {
           sql:
             `INSERT OR IGNORE INTO admin_event_blobs (event_id, blob, encrypted)
               SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?)`,
@@ -270,39 +292,37 @@ export async function indexEventsForAdmin(
             reference.encrypted ? 1 : 0,
             reference.sha256,
           ],
-        });
-        if ((result.rowsAffected ?? 0) > 0) {
-          indexedLinks += 1;
-          await db.execute({
-            sql:
-              `INSERT OR REPLACE INTO admin_event_blob_metadata (event_id, blob, name)
-                VALUES (?, ?, ?)`,
-            args: [
-              event.id,
-              reference.sha256,
-              reference.name ?? reference.role ?? "",
-            ],
-          });
-        }
-      }
-      await db.execute({
-        sql: `INSERT OR REPLACE INTO admin_event_search
+        },
+        {
+          sql:
+            `INSERT OR REPLACE INTO admin_event_blob_metadata (event_id, blob, name)
+              SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?)`,
+          args: [
+            event.id,
+            reference.sha256,
+            reference.name ?? reference.role ?? "",
+            reference.sha256,
+          ],
+        },
+      );
+    }
+    statements.push({
+      sql: `INSERT OR REPLACE INTO admin_event_search
             (event_id, title, author_name, author_nip05, search_text, refreshed_at)
             VALUES (?, ?, ?, ?, ?, unixepoch())`,
-        args: [
-          event.id,
-          title,
-          authorName,
-          profile?.nip05 ?? "",
-          searchText,
-        ],
-      });
-      await db.execute("COMMIT");
-      indexedEvents += 1;
-    } catch (error) {
-      await db.execute("ROLLBACK");
-      throw error;
-    }
+      args: [
+        event.id,
+        title,
+        authorName,
+        profile?.nip05 ?? "",
+        searchText,
+      ],
+    });
+    const results = await db.batch(statements, "write");
+    indexedLinks += linkResultIndexes.filter((index) =>
+      (results[index].rowsAffected ?? 0) > 0
+    ).length;
+    indexedEvents += 1;
   }
   return { events: indexedEvents, links: indexedLinks };
 }
@@ -329,62 +349,68 @@ export async function inspectAndIndexEvent(
   const references = extractEventBlobReferences(event, publicDomain);
   const linked: IndexedEventResult["linked"] = [];
   const missing: string[] = [];
-  await db.execute("BEGIN");
-  try {
-    await db.execute({
+  const statements: Array<{
+    sql: string;
+    args: Array<string | number>;
+  }> = [
+    {
       sql:
         `INSERT OR REPLACE INTO admin_events (event_id, pubkey, kind, created_at, indexed_at)
             VALUES (?, ?, ?, ?, unixepoch())`,
       args: [event.id, event.pubkey, event.kind, event.created_at],
-    });
-    await db.execute({
+    },
+    {
       sql: "DELETE FROM admin_event_blobs WHERE event_id = ?",
       args: [event.id],
-    });
-    for (const reference of references) {
-      const result = await db.execute({
-        sql:
-          `INSERT OR IGNORE INTO admin_event_blobs (event_id, blob, encrypted)
+    },
+  ];
+  const linkResultIndexes: number[] = [];
+  for (const reference of references) {
+    linkResultIndexes.push(statements.length);
+    statements.push({
+      sql: `INSERT OR IGNORE INTO admin_event_blobs (event_id, blob, encrypted)
               SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?)`,
-        args: [
-          event.id,
-          reference.sha256,
-          reference.encrypted ? 1 : 0,
-          reference.sha256,
-        ],
-      });
-      if ((result.rowsAffected ?? 0) > 0) linked.push(reference);
-      else missing.push(reference.sha256);
-    }
-    const title = getEventTitle(event);
-    const searchText = [
-      title,
-      event.tags.find((tag) => tag[0] === "summary")?.[1] ?? "",
-      event.content.slice(0, 4_000),
-      ...references.map((reference) => reference.name ?? ""),
-    ].filter(Boolean).join(" ").slice(0, 8_000);
-    await db.execute({
-      sql: `INSERT OR REPLACE INTO admin_event_search
+      args: [
+        event.id,
+        reference.sha256,
+        reference.encrypted ? 1 : 0,
+        reference.sha256,
+      ],
+    });
+  }
+  const title = getEventTitle(event);
+  const searchText = [
+    title,
+    event.tags.find((tag) => tag[0] === "summary")?.[1] ?? "",
+    event.content.slice(0, 4_000),
+    ...references.map((reference) => reference.name ?? ""),
+  ].filter(Boolean).join(" ").slice(0, 8_000);
+  statements.push({
+    sql: `INSERT OR REPLACE INTO admin_event_search
           (event_id, title, author_name, author_nip05, search_text, refreshed_at)
           VALUES (?, ?, '', '', ?, unixepoch())`,
-      args: [event.id, title, searchText],
+    args: [event.id, title, searchText],
+  });
+  for (const reference of references) {
+    statements.push({
+      sql:
+        `INSERT OR REPLACE INTO admin_event_blob_metadata (event_id, blob, name)
+            SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?)`,
+      args: [
+        event.id,
+        reference.sha256,
+        reference.name ?? reference.role ?? "",
+        reference.sha256,
+      ],
     });
-    for (const reference of linked) {
-      await db.execute({
-        sql:
-          `INSERT OR REPLACE INTO admin_event_blob_metadata (event_id, blob, name)
-            VALUES (?, ?, ?)`,
-        args: [
-          event.id,
-          reference.sha256,
-          reference.name ?? reference.role ?? "",
-        ],
-      });
-    }
-    await db.execute("COMMIT");
-  } catch (error) {
-    await db.execute("ROLLBACK");
-    throw error;
   }
+  const results = await db.batch(statements, "write");
+  references.forEach((reference, index) => {
+    if ((results[linkResultIndexes[index]].rowsAffected ?? 0) > 0) {
+      linked.push(reference);
+    } else {
+      missing.push(reference.sha256);
+    }
+  });
   return { event, linked, missing };
 }
