@@ -693,7 +693,7 @@ export const ConfigSchema = z
           "Do NOT include a protocol scheme (https://) — bare hostname only.",
       ),
     blobDomain: z.string().default("").describe(
-      "Optional bare hostname used only for public blob URLs. Keep the API and BUD-11 server domain in publicDomain.",
+      "Optional bare hostname used as the redirect target for public blob reads. API responses keep using publicDomain for client compatibility.",
     ),
     // Deprecated: use the "database" section instead.
     // If "database" is absent this value seeds database.path.

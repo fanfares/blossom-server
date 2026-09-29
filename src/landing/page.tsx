@@ -67,8 +67,9 @@ function ownerPills(owners: string[]): string {
 
 function blobUrl(sha256: string, type: string | null, config: Config): string {
   const ext = mimeToExt(type);
-  const domain = config.blobDomain || config.publicDomain;
-  const base = domain ? `https://${domain.replace(/\/$/, "")}` : "";
+  const base = config.publicDomain
+    ? `https://${config.publicDomain.replace(/\/$/, "")}`
+    : "";
   return `${base}/${sha256}${ext ? `.${ext}` : ""}`;
 }
 

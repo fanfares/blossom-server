@@ -130,12 +130,15 @@ Turso rather than the container filesystem. `TURSO_DATABASE_URL` and
 instead of silently falling back to ephemeral SQLite when either value is
 missing.
 
-Cloudflare deployments use separate custom domains for blob reads:
+Cloudflare deployments use separate custom domains for blob delivery:
 `blobs.staging.blossom.fanfares.live` on staging and
 `blobs.blossom.fanfares.live` in production. Wrangler creates their DNS records
 and certificates when the manual deploy workflow runs. The API domain remains
-the BUD-11 server domain. Legacy blob links on that domain redirect to the blob
-domain. The blob domain accepts only canonical GET/HEAD blob paths and strips
+the BUD-11 server domain and the origin returned in upload, list, and account
+descriptors, preserving compatibility with clients that validate the selected
+server origin. Blob GET/HEAD requests on that domain redirect to the isolated
+blob domain. Existing and newly published API-domain links therefore remain
+valid. The blob domain accepts only canonical GET/HEAD blob paths and strips
 incoming cookies and authorization before forwarding. Keep both Wrangler configs
 at `max_instances: 1` until shared database locking covers blob ownership and
 quote creation.

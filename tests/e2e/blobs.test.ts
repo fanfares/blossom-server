@@ -141,7 +141,9 @@ Deno.test({
     );
     assertEquals(uploadRes.status, 201, "Upload should succeed");
     const descriptor = await uploadRes.json();
-    assertEquals(new URL(descriptor.url).hostname, "blobs.localhost");
+    // Keep descriptors on the selected API origin so existing Blossom clients
+    // accept them. Cloudflare redirects the eventual GET/HEAD to blobDomain.
+    assertEquals(new URL(descriptor.url).hostname, "localhost");
     blobUrl = new URL(descriptor.url).pathname; // e.g. /abc123...
 
     cleanup = async () => {
