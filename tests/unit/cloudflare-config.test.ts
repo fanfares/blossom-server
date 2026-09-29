@@ -40,6 +40,11 @@ Deno.test("Cloudflare deployments stay single-instance until shared mutation loc
 Deno.test("Cloudflare container stays warm across an admin session", async () => {
   const source = await Deno.readTextFile("worker/index.ts");
   assertEquals(source.includes('sleepAfter = "2h"'), true);
+  assertEquals(source.includes("await container.start()"), false);
+  assertEquals(
+    source.includes("await container.fetch(containerRequest)"),
+    true,
+  );
 });
 
 /** Loads the committed Cloudflare config with non-secret test values and restores the process environment afterward. */

@@ -591,7 +591,9 @@ export default {
     const container = env.BLOSSOM_APP.getByName(
       env.BLOSSOM_CONTAINER_INSTANCE ?? "primary",
     );
-    await container.start();
+    // Container.fetch() starts a sleeping instance automatically. Calling
+    // start() for every request adds a lifecycle round trip even while the
+    // instance is already serving traffic.
     // Never pass credentials from the public blob hostname to the app container.
     const containerRequest = blobAction === "blob"
       ? new Request(request, {
