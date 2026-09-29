@@ -253,3 +253,53 @@ Deno.test("admin blob queries search and filter persisted event relationships", 
     await Deno.remove(tmpDir, { recursive: true });
   }
 });
+
+Deno.test("refresh retains searchable author identity when profile relays fail", async () => {
+  const tmpDir = await Deno.makeTempDir();
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  const hash = "a".repeat(64);
+  const event = finalizeEvent({
+    kind: 31339,
+    created_at: 1000,
+    content: "",
+    tags: [["title", "Test book"], [
+      "imeta",
+      `url https://blossom.example/${hash}.bin`,
+      "name Chapter One",
+    ]],
+  }, generateSecretKey());
+  try {
+    await insertBlob(
+      db,
+      { sha256: hash, size: 42, type: null, uploaded: 1000 },
+      event.pubkey,
+    );
+    await indexEventsForAdmin(
+      db,
+      [event],
+      new Map([[event.pubkey, {
+        name: "fftester",
+        nip05: "test@example.com",
+      }]]),
+      "blossom.example",
+    );
+    await indexEventsForAdmin(db, [event], new Map(), "blossom.example");
+    for (
+      const query of [
+        "fftester",
+        "test@example.com",
+        "Chapter One",
+        "Test book",
+      ]
+    ) {
+      assertEquals(
+        (await listAllBlobs(db, { filter: { q: query } })).length,
+        1,
+        query,
+      );
+    }
+  } finally {
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});
