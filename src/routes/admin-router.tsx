@@ -97,7 +97,11 @@ export function buildAdminRouter(
         [config.publicDomain || new URL(c.req.url).hostname, config.blobDomain]
           .filter(Boolean),
       );
-      const profiles = await fetchUserProfiles([result.event.pubkey]);
+      const profiles = await fetchUserProfiles(
+        [result.event.pubkey],
+        4_000,
+        true,
+      );
       await indexEventsForAdmin(
         db,
         [result.event],
@@ -129,8 +133,11 @@ export function buildAdminRouter(
       const users = await dbHandle.listAllUsers({ limit: 10_000 });
       const pubkeys = users.map((user) => user.pubkey);
       const [events, profiles] = await Promise.all([
-        fetchOwnerEvents(pubkeys, config.dashboard.lookupRelays),
-        fetchUserProfiles(pubkeys),
+        fetchOwnerEvents(pubkeys, config.dashboard.lookupRelays, {
+          maxWait: 4_000,
+          force: true,
+        }),
+        fetchUserProfiles(pubkeys, 4_000, true),
       ]);
       const result = await indexEventsForAdmin(
         db,

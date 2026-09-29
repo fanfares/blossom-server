@@ -53,12 +53,13 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
   }
 
   // Fetch the complete moderation inventory, event snapshot, and profile in parallel.
-  // fetchUserProfile has its own 4 s timeout — a slow relay never blocks
-  // the page render beyond that, and null is the graceful-degradation value.
+  // Relay enrichment is best effort so external relays cannot stall navigation.
   const [blobs, profile, events] = await Promise.all([
     db.listBlobsByPubkeyAdmin(pubkey, { limit: 10_000 }),
-    fetchUserProfile(pubkey),
-    fetchOwnerEvents([pubkey], config.dashboard.lookupRelays),
+    fetchUserProfile(pubkey, 750),
+    fetchOwnerEvents([pubkey], config.dashboard.lookupRelays, {
+      maxWait: 750,
+    }),
   ]);
   const total = blobs.length;
 

@@ -75,12 +75,11 @@ export const BlobsPage: FC<BlobsPageProps> = async (
     db.countBlobs(filter),
   ]);
   const ownerPubkeys = blobs.flatMap((blob) => blob.owners);
-  const events = await fetchOwnerEvents(
-    ownerPubkeys,
-    config.dashboard.lookupRelays,
-  );
-  const profiles = await fetchUserProfiles([
-    ...new Set(events.map((event) => event.pubkey)),
+  const [events, profiles] = await Promise.all([
+    fetchOwnerEvents(ownerPubkeys, config.dashboard.lookupRelays, {
+      maxWait: 750,
+    }),
+    fetchUserProfiles(ownerPubkeys, 750),
   ]);
   const grouped = groupBlobsByEvents(
     blobs,

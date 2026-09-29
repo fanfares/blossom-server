@@ -12,7 +12,6 @@
 import { castUser } from "applesauce-common/casts";
 import { EventStore } from "applesauce-core/event-store";
 import type { ProfileContent } from "applesauce-core/helpers";
-import { loadAsyncMap } from "applesauce-loaders/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
 import { BehaviorSubject } from "rxjs";
@@ -36,6 +35,12 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
   bufferTime: 100,
 });
 
+const PROFILE_CACHE_MS = 5 * 60_000;
+const profileCache = new Map<
+  string,
+  { expiresAt: number; profile: ProfileContent | null }
+>();
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -48,11 +53,23 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
 export async function fetchUserProfile(
   pubkey: string,
   timeout = 4_000,
+  force = false,
 ): Promise<ProfileContent | null> {
+  const cached = profileCache.get(pubkey);
+  if (!force && cached && cached.expiresAt > Date.now()) return cached.profile;
   try {
     const user = castUser(pubkey, eventStore);
-    return await user.profile$.$first(timeout, null);
+    const profile = await user.profile$.$first(timeout, null);
+    profileCache.set(pubkey, {
+      expiresAt: Date.now() + PROFILE_CACHE_MS,
+      profile,
+    });
+    return profile;
   } catch {
+    profileCache.set(pubkey, {
+      expiresAt: Date.now() + PROFILE_CACHE_MS,
+      profile: null,
+    });
     return null;
   }
 }
@@ -67,26 +84,18 @@ export async function fetchUserProfile(
 export async function fetchUserProfiles(
   pubkeys: string[],
   timeout = 4_000,
+  force = false,
 ): Promise<Map<string, ProfileContent | undefined>> {
   const result = new Map<string, ProfileContent | undefined>();
   if (pubkeys.length === 0) return result;
 
-  const promiseMap: Record<string, Promise<ProfileContent | null>> = {};
-  for (const pubkey of pubkeys) {
-    promiseMap[pubkey] = castUser(pubkey, eventStore).profile$.$first(
-      timeout,
-      null,
-    );
-  }
-
-  try {
-    const resolved = await loadAsyncMap(promiseMap, timeout + 500);
-    for (const [pubkey, profile] of Object.entries(resolved)) {
-      result.set(pubkey, profile ?? undefined);
-    }
-  } catch {
-    // Partial results are fine — return whatever was collected.
-  }
+  const uniquePubkeys = [...new Set(pubkeys)];
+  const profiles = await Promise.all(
+    uniquePubkeys.map((pubkey) => fetchUserProfile(pubkey, timeout, force)),
+  );
+  uniquePubkeys.forEach((pubkey, index) =>
+    result.set(pubkey, profiles[index] ?? undefined)
+  );
 
   return result;
 }

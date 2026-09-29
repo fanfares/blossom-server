@@ -31,7 +31,10 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
     db.listAllUsers({ filter, limit: PAGE_SIZE, offset }),
     db.countUsers(filter),
   ]);
-  const profiles = await fetchUserProfiles(users.map((user) => user.pubkey));
+  const profiles = await fetchUserProfiles(
+    users.map((user) => user.pubkey),
+    750,
+  );
 
   const baseUrl = q
     ? `/admin/users?q=${encodeURIComponent(q)}`

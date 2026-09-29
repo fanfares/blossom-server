@@ -537,7 +537,7 @@ async function syncDelete(
 
 export class BlossomAppContainer extends Container {
   defaultPort = 3000;
-  sleepAfter = "10m";
+  sleepAfter = "2h";
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);

@@ -8,6 +8,11 @@ import type { AdminBlobRecord } from "../db/blobs.ts";
 const HEX_EVENT_RE = /^[a-f0-9]{64}$/i;
 const BLOB_PATH_RE = /^\/([a-f0-9]{64})(?:\.[a-z0-9]+)?$/i;
 const pool = new SimplePool();
+const OWNER_EVENT_CACHE_MS = 5 * 60_000;
+const ownerEventCache = new Map<
+  string,
+  { expiresAt: number; events: NostrEvent[] }
+>();
 
 export interface IndexedEventResult {
   event: NostrEvent;
@@ -140,18 +145,41 @@ export function extractEventBlobReferences(
 export async function fetchOwnerEvents(
   pubkeys: string[],
   relays: string[],
+  options: { maxWait?: number; force?: boolean } = {},
 ): Promise<NostrEvent[]> {
   if (pubkeys.length === 0 || relays.length === 0) return [];
+  const authors = [...new Set(pubkeys)];
+  const now = Date.now();
+  const cached: NostrEvent[] = [];
+  const missing: string[] = [];
+  for (const author of authors) {
+    const entry = ownerEventCache.get(author);
+    if (!options.force && entry && entry.expiresAt > now) {
+      cached.push(...entry.events);
+    } else {
+      missing.push(author);
+    }
+  }
+  if (missing.length === 0) return cached;
+
   try {
     const events = await pool.querySync(relays, {
-      authors: [...new Set(pubkeys)],
+      authors: missing,
       limit: 1000,
-    }, { maxWait: 4_000 });
-    return events.filter((event) =>
+    }, { maxWait: options.maxWait ?? 750 });
+    const verified = events.filter((event) =>
       event.tags.some((tag) => tag[0] === "imeta") && verifyEvent(event)
     );
+    const byAuthor = Map.groupBy(verified, (event) => event.pubkey);
+    for (const author of missing) {
+      ownerEventCache.set(author, {
+        expiresAt: now + OWNER_EVENT_CACHE_MS,
+        events: byAuthor.get(author) ?? [],
+      });
+    }
+    return [...cached, ...verified];
   } catch {
-    return [];
+    return cached;
   }
 }
 
