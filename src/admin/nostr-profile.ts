@@ -36,6 +36,9 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
 });
 
 const PROFILE_CACHE_MS = 5 * 60_000;
+const PROFILE_RETRY_MS = 15_000;
+const MAX_CACHED_PROFILES = 2_000;
+const pendingProfiles = new Map<string, Promise<ProfileContent | null>>();
 const profileCache = new Map<
   string,
   { expiresAt: number; profile: ProfileContent | null }
@@ -57,23 +60,41 @@ export async function fetchUserProfile(
 ): Promise<ProfileContent | null> {
   const cached = profileCache.get(pubkey);
   if (!force && cached && cached.expiresAt > Date.now()) return cached.profile;
-  try {
-    const user = castUser(pubkey, eventStore);
-    const profile = await user.profile$.$first(timeout, null);
+  const pendingKey = `${pubkey}:${timeout}:${force}`;
+  const pending = pendingProfiles.get(pendingKey);
+  if (pending) return pending;
+  const lookup = (async () => {
+    let profile: ProfileContent | null = null;
+    try {
+      profile = await castUser(pubkey, eventStore).profile$.$first(
+        timeout,
+        null,
+      );
+    } catch {
+      // Relay failures retain the last known identity.
+    }
+    const fallback = profile ?? cached?.profile ?? null;
+    if (profileCache.size >= MAX_CACHED_PROFILES && !profileCache.has(pubkey)) {
+      profileCache.delete(profileCache.keys().next().value!);
+    }
     profileCache.set(pubkey, {
-      expiresAt: Date.now() + PROFILE_CACHE_MS,
-      profile,
+      expiresAt: Date.now() + (profile ? PROFILE_CACHE_MS : PROFILE_RETRY_MS),
+      profile: fallback,
     });
-    return profile;
-  } catch {
-    return null;
+    return fallback;
+  })();
+  pendingProfiles.set(pendingKey, lookup);
+  try {
+    return await lookup;
+  } finally {
+    pendingProfiles.delete(pendingKey);
   }
 }
 
 /**
  * Fetch Nostr kind:0 profile metadata for multiple pubkeys in parallel.
  *
- * All fetches race concurrently via loadAsyncMap. Each is individually bounded
+ * Duplicate pubkeys share one lookup; all distinct lookups run concurrently. Each is individually bounded
  * by `timeout` via $first — a slow relay for one pubkey never delays others.
  * Timed-out entries are undefined in the returned Map.
  */

@@ -42,7 +42,7 @@ export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
       {/* deno-fmt-ignore */}
       <script dangerouslySetInnerHTML={{ __html: ACTION_SCRIPT }} />
     </head>
-    <body class="min-h-screen overflow-x-hidden bg-[#030303] text-gray-100 antialiased">
+    <body class="admin-dashboard min-h-screen overflow-x-hidden bg-[#030303] text-gray-100 antialiased">
       <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.12),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(168,85,247,0.10),_transparent_24%),radial-gradient(circle_at_bottom,_rgba(14,165,233,0.06),_transparent_34%)]" />
       <div class="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:72px_72px] opacity-20 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
       <main class="relative mx-auto min-h-screen w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">

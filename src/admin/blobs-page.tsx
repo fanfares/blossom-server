@@ -117,13 +117,14 @@ export const BlobsPage: FC<BlobsPageProps> = async (
       <form
         method="get"
         action="/admin/blobs"
-        class="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] p-3"
+        class="admin-search mb-3 flex flex-wrap items-center gap-2"
       >
         <input
           type="text"
           name="q"
           value={q}
-          placeholder="Search title, file, author, NIP-05, hash, MIME, or event…"
+          aria-label="Search stored files"
+          placeholder="Search author, title, chapter, or file…"
           class="min-w-64 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
         <select
@@ -177,7 +178,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
         )}
       </form>
 
-      <div class="mb-6 flex flex-wrap items-start justify-end gap-x-5 gap-y-3 px-1">
+      <div class="admin-event-tools mb-6 flex flex-wrap items-start justify-end gap-x-5 gap-y-3 px-1">
         <details class="group min-w-0">
           <summary class="cursor-pointer list-none text-xs font-semibold text-gray-500 transition-colors hover:text-cyan-100 [&::-webkit-details-marker]:hidden">
             Inspect a specific event

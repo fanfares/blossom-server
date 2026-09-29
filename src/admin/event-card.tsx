@@ -33,7 +33,7 @@ export const EventCard: FC<EventCardProps> = (
   { group, profile, publicDomain, blobBaseUrl },
 ) => {
   const authorName = profile?.displayName || profile?.display_name ||
-    profile?.name || "Unknown author";
+    profile?.name || `Publisher ${group.event.pubkey.slice(0, 8)}…`;
   const avatar = safeImageUrl(profile?.picture || profile?.image);
   const npub = nip19.npubEncode(group.event.pubkey);
   const summary = group.event.tags.find((tag) => tag[0] === "summary")?.[1] ||
@@ -62,6 +62,7 @@ export const EventCard: FC<EventCardProps> = (
               alt=""
               class="h-full min-h-44 w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
               loading="lazy"
+              referrerpolicy="no-referrer"
             />
           </a>
         )}
@@ -108,6 +109,7 @@ export const EventCard: FC<EventCardProps> = (
                     height="40"
                     class="h-10 w-10 flex-shrink-0 rounded-full bg-gray-800 object-cover"
                     loading="lazy"
+                    referrerpolicy="no-referrer"
                   />
                 )
                 : (

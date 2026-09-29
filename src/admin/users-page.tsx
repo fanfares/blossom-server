@@ -53,14 +53,14 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
       <form
         method="get"
         action="/admin/users"
-        class="mb-5 flex gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4"
+        class="admin-search mb-5 flex flex-wrap gap-3"
       >
         <input
           type="text"
           name="q"
           value={q}
           placeholder="Search by name, NIP-05, or pubkey…"
-          class="max-w-md flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
+          class="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-gray-200 outline-none transition-colors placeholder:text-gray-700 focus:border-cyan-300/35"
         />
         <button
           type="submit"
@@ -89,9 +89,8 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
             <Table>
               <Thead>
                 <tr>
-                  <Th>Pubkey</Th>
+                  <Th>Publisher</Th>
                   <Th>Blobs</Th>
-                  <Th>Total Size</Th>
                   <Th>Actions</Th>
                 </tr>
               </Thead>
@@ -128,7 +127,8 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
                             )}
                           <span class="min-w-0">
                             <span class="block truncate text-sm font-semibold text-gray-200">
-                              {displayName || "Unknown author"}
+                              {displayName ||
+                                `Publisher ${user.pubkey.slice(0, 8)}…`}
                             </span>
                             <span class="block truncate font-mono text-xs text-gray-600">
                               {profile?.nip05 ||
@@ -142,7 +142,6 @@ export const UsersPage: FC<UsersPageProps> = async ({ db, page, q }) => {
                       <Td>
                         <Badge>{blobCount}</Badge>
                       </Td>
-                      <Td>—</Td>
                       <Td>
                         <a
                           href={`/admin/users/${user.pubkey}`}

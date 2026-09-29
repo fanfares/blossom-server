@@ -1295,3 +1295,111 @@ img, video {
     padding-bottom: 2rem;
   }
 }
+
+/* Shared admin controls: fixed geometry also covers utilities absent from the generated bundle. */
+.admin-dashboard nav ul {
+  align-items: center;
+}
+.admin-dashboard nav li, .admin-dashboard nav form {
+  display: flex;
+  margin: 0;
+  align-items: center;
+}
+.admin-dashboard nav a, .admin-dashboard nav button {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+.admin-dashboard :is(button, a, input, select, summary):focus-visible {
+  outline: 2px solid #67e8f9;
+  outline-offset: 3px;
+}
+.admin-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.admin-search input {
+  min-width: 0;
+  flex: 1 1 280px;
+}
+.admin-search :is(input, select, button, a) {
+  min-height: 40px;
+}
+.admin-event-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 16px 28px;
+  margin-top: 16px;
+  margin-bottom: 24px;
+}
+.admin-event-tools summary {
+  list-style: none;
+}
+.admin-event-tools summary::-webkit-details-marker {
+  display: none;
+}
+.admin-event-tools summary::after {
+  content: " +";
+}
+.admin-event-tools details[open] summary::after {
+  content: " −";
+}
+.admin-dashboard img {
+  max-width: 100%;
+}
+@media (max-width: 640px) {
+  .admin-dashboard main {
+    padding: 16px;
+  }
+  .admin-dashboard header > div {
+    padding: 20px;
+  }
+  .admin-dashboard h1 {
+    font-size: 28px;
+  }
+  .admin-dashboard nav ul {
+    gap: 8px;
+  }
+  .admin-dashboard nav a, .admin-dashboard nav button {
+    padding: 0 12px;
+    font-size: 13px;
+  }
+  .admin-search input {
+    flex-basis: 100%;
+    width: 100%;
+  }
+  .admin-search select {
+    min-width: 0;
+    flex: 1 1 100px;
+  }
+  .admin-event-tools {
+    justify-content: flex-start;
+  }
+  .admin-event-tools details {
+    max-width: 100%;
+  }
+  .admin-event-tools details form {
+    min-width: 0;
+    width: 100%;
+  }
+  .admin-event-tools details input {
+    min-width: 0;
+    width: 100%;
+  }
+  .admin-dashboard td {
+    padding: 12px;
+  }
+  .admin-dashboard td:first-child {
+    min-width: 180px;
+  }
+  .admin-dashboard article h3 {
+    overflow-wrap: anywhere;
+  }
+}

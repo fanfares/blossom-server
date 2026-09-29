@@ -269,8 +269,9 @@ export async function indexEventsForAdmin(
     }> = [
       {
         sql:
-          `INSERT OR REPLACE INTO admin_events (event_id, pubkey, kind, created_at, indexed_at)
-            VALUES (?, ?, ?, ?, unixepoch())`,
+          `INSERT INTO admin_events (event_id, pubkey, kind, created_at, indexed_at)
+            VALUES (?, ?, ?, ?, unixepoch())
+            ON CONFLICT(event_id) DO UPDATE SET indexed_at = unixepoch()`,
         args: [event.id, event.pubkey, event.kind, event.created_at],
       },
       {
@@ -307,9 +308,15 @@ export async function indexEventsForAdmin(
       );
     }
     statements.push({
-      sql: `INSERT OR REPLACE INTO admin_event_search
+      sql: `INSERT INTO admin_event_search
             (event_id, title, author_name, author_nip05, search_text, refreshed_at)
-            VALUES (?, ?, ?, ?, ?, unixepoch())`,
+            VALUES (?, ?, ?, ?, ?, unixepoch())
+            ON CONFLICT(event_id) DO UPDATE SET
+              title = excluded.title,
+              author_name = CASE WHEN excluded.author_name != '' THEN excluded.author_name ELSE admin_event_search.author_name END,
+              author_nip05 = CASE WHEN excluded.author_nip05 != '' THEN excluded.author_nip05 ELSE admin_event_search.author_nip05 END,
+              search_text = excluded.search_text,
+              refreshed_at = unixepoch()`,
       args: [
         event.id,
         title,
@@ -355,8 +362,9 @@ export async function inspectAndIndexEvent(
   }> = [
     {
       sql:
-        `INSERT OR REPLACE INTO admin_events (event_id, pubkey, kind, created_at, indexed_at)
-            VALUES (?, ?, ?, ?, unixepoch())`,
+        `INSERT INTO admin_events (event_id, pubkey, kind, created_at, indexed_at)
+            VALUES (?, ?, ?, ?, unixepoch())
+            ON CONFLICT(event_id) DO UPDATE SET indexed_at = unixepoch()`,
       args: [event.id, event.pubkey, event.kind, event.created_at],
     },
     {
