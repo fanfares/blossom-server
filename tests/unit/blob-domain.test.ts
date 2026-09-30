@@ -1,5 +1,8 @@
 import { assertEquals } from "@std/assert";
-import { classifyBlobRequest } from "../../worker/blob-domain.ts";
+import {
+  blobReadResponse,
+  classifyBlobRequest,
+} from "../../worker/blob-domain.ts";
 
 const HASH = "a".repeat(64);
 const BLOB_DOMAIN = "blobs.staging.blossom.fanfares.live";
@@ -67,4 +70,64 @@ Deno.test("API hostname redirects blob reads and keeps other routes", () => {
     ),
     "normal",
   );
+});
+
+Deno.test("legacy blob redirects allow public cross-origin browser reads", () => {
+  for (const method of ["GET", "HEAD"]) {
+    const response = blobReadResponse(
+      new Request(`https://staging.blossom.fanfares.live/${HASH}.mpga`, {
+        method,
+        headers: { Origin: "https://staging.fanfares.io" },
+      }),
+      BLOB_DOMAIN,
+    )!;
+    assertEquals(response.status, 308);
+    assertEquals(response.headers.get("access-control-allow-origin"), "*");
+    assertEquals(
+      response.headers.get("location"),
+      `https://${BLOB_DOMAIN}/${HASH}.mpga`,
+    );
+    assertEquals(response.headers.get("cache-control"), "no-store");
+    assertEquals(response.headers.has("set-cookie"), false);
+  }
+});
+Deno.test("public blob preflights permit reads without enabling uploads or admin routes", () => {
+  for (const hostname of [BLOB_DOMAIN, "staging.blossom.fanfares.live"]) {
+    const response = blobReadResponse(
+      new Request(`https://${hostname}/${HASH}.mpga`, {
+        method: "OPTIONS",
+        headers: {
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "range",
+        },
+      }),
+      BLOB_DOMAIN,
+    )!;
+    assertEquals(response.status, 204);
+    assertEquals(response.headers.get("access-control-allow-origin"), "*");
+    assertEquals(
+      response.headers.get("access-control-allow-methods"),
+      "GET, HEAD, OPTIONS",
+    );
+    assertEquals(
+      blobReadResponse(
+        new Request(`https://${hostname}/${HASH}`, {
+          method: "OPTIONS",
+          headers: { "Access-Control-Request-Method": "PUT" },
+        }),
+        BLOB_DOMAIN,
+      )?.status,
+      404,
+    );
+    assertEquals(
+      blobReadResponse(
+        new Request(`https://${hostname}/admin`, {
+          method: "OPTIONS",
+          headers: { "Access-Control-Request-Method": "GET" },
+        }),
+        BLOB_DOMAIN,
+      ),
+      null,
+    );
+  }
 });

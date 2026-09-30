@@ -1,5 +1,5 @@
 import { Container } from "@cloudflare/containers";
-import { classifyBlobRequest } from "./blob-domain.ts";
+import { blobReadResponse, classifyBlobRequest } from "./blob-domain.ts";
 
 const HEX_64_RE = /^[a-f0-9]{64}$/;
 const DEPLOY_PROBE = "cd-check-2026-06-12-b";
@@ -575,13 +575,11 @@ export default {
   ): Promise<Response> {
     const url = new URL(request.url);
     const blobDomain = env.BLOSSOM_BLOB_DOMAIN ?? "";
+    const publicResponse = blobReadResponse(request, blobDomain);
+    if (publicResponse) return publicResponse;
     const blobAction = classifyBlobRequest(url, request.method, blobDomain);
     if (blobAction === "reject") {
       return new Response("Not found", { status: 404 });
-    }
-    if (blobAction === "redirect") {
-      url.hostname = blobDomain;
-      return Response.redirect(url.toString(), 308);
     }
 
     const metaResponse = await handleMetadataApi(request, env);
