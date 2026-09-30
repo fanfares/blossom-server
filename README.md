@@ -585,7 +585,19 @@ extension, then enters the configured password. It provides pages for:
   available at `/admin/blob-reports`
 
 Wallet destination overrides are stored in the database and survive restarts.
-The configured Lightning address is the fallback until an override is saved.
+The configured Lightning address is the fallback until an override is saved. The
+settings form also selects the Cashu mint for new invoices. The configured
+`paidStorage.cashu.mintUrl` is always available; add other vetted HTTPS mints to
+`paidStorage.approvedMintUrls` before offering them in the dashboard. Staging
+currently approves only its existing Minibits mint. An arbitrary URL cannot be
+entered in the dashboard. Every new purchase records its issuing mint atomically
+with its invoice, and changing the active mint snapshots legacy purchases first.
+Invoice verification, Cashu claims, and treasury retries use that purchase's
+original mint across restarts. Switching mints does not transfer existing Cashu
+balances. Removing the active mint from the approved list stops new quotes until
+an administrator chooses another approved mint; existing purchases remain
+recoverable using their pinned mint.
+
 Only future settlement operations pick up a changed destination: an existing
 outbox transfer always retains its original destination. Forwarding status is
 separate from invoice payment and storage crediting. Private Cashu proofs and

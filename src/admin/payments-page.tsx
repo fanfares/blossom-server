@@ -1,4 +1,5 @@
 /** @jsxImportSource @hono/hono/jsx */
+import { approvedMintUrls, getActiveMint } from "../db/storage-mints.ts";
 import type { FC } from "@hono/hono/jsx";
 import type { Client } from "@libsql/client";
 import type { Config } from "../config/schema.ts";
@@ -33,7 +34,7 @@ export const PaymentsPage: FC<
     notice?: string;
   }
 > = async ({ db, config, page, pubkey, state, notice }) => {
-  const [data, destination, audit] = await Promise.all([
+  const [data, destination, audit, mintUrl, mintAudit] = await Promise.all([
     listAdminPayments(db, page, pubkey, state),
     getTreasuryDestination(
       db,
@@ -41,6 +42,10 @@ export const PaymentsPage: FC<
     ),
     db.execute(
       "SELECT destination, previous_destination, changed_at, changed_by FROM admin_treasury_audit ORDER BY id DESC LIMIT 10",
+    ),
+    getActiveMint(db, config.paidStorage.cashu.mintUrl),
+    db.execute(
+      "SELECT mint_url, previous_mint_url, changed_at, changed_by FROM admin_mint_audit ORDER BY id DESC LIMIT 10",
     ),
   ]);
   const profiles = await fetchUserProfiles([
@@ -81,7 +86,7 @@ export const PaymentsPage: FC<
           <strong>{destination || "Not configured"}</strong>
         </p>
         <p>
-          Mint: {config.paidStorage.cashu.mintUrl}. Forwarding is{" "}
+          Mint for new invoices: {mintUrl}. Forwarding is{" "}
           {config.paidStorage.treasury.enabled ? "enabled" : "disabled"}.
         </p>
         <p>
@@ -91,7 +96,7 @@ export const PaymentsPage: FC<
         </p>
         {config.paidStorage.enabled && config.paidStorage.treasury.enabled && (
           <details>
-            <summary>Change destination</summary>
+            <summary>Change payment settings</summary>
             <form
               method="post"
               action="/admin/payments/destination"
@@ -108,6 +113,23 @@ export const PaymentsPage: FC<
                 />
               </label>
               <label>
+                Mint for new invoices<select name="mintUrl" required>
+                  {approvedMintUrls(
+                    config.paidStorage.cashu.mintUrl,
+                    config.paidStorage.approvedMintUrls,
+                  ).map((url) => (
+                    <option value={url} selected={url === mintUrl}>
+                      {url}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p>
+                Only server-approved mints are available. Existing invoices and
+                payout retries keep their original mint. Changing mints does not
+                move existing Cashu funds.
+              </p>
+              <label>
                 Confirm admin password<input
                   required
                   name="password"
@@ -116,14 +138,14 @@ export const PaymentsPage: FC<
                 />
               </label>
               <button type="submit">
-                Save destination for future payments
+                Save payment settings
               </button>
             </form>
           </details>
         )}
         <details>
-          <summary>Recent destination changes</summary>
-          {audit.rows.length === 0
+          <summary>Recent payment settings changes</summary>
+          {audit.rows.length === 0 && mintAudit.rows.length === 0
             ? <p>No dashboard changes. Using the configured destination.</p>
             : (
               <ul>
@@ -135,6 +157,14 @@ export const PaymentsPage: FC<
                     <a href={`/admin/users/${row.changed_by}`}>
                       {truncateHash(String(row.changed_by))}
                     </a>
+                  </li>
+                ))}
+                {mintAudit.rows.map((row) => (
+                  <li>
+                    {formatDate(Number(row.changed_at))}: Mint{" "}
+                    {String(row.previous_mint_url)} → {String(row.mint_url)} ·
+                    {" "}
+                    {truncateHash(String(row.changed_by))}
                   </li>
                 ))}
               </ul>
@@ -162,7 +192,7 @@ export const PaymentsPage: FC<
           </select>
         </label>
         <button type="submit">Filter</button>
-        <a href="/admin/payments">Clear</a>
+        <a class="admin-filter-clear" href="/admin/payments">Clear</a>
       </form>
       <p class="admin-caption">
         {data.total.toLocaleString()}{" "}
@@ -195,6 +225,11 @@ export const PaymentsPage: FC<
                             truncateHash(String(row.pubkey))}
                         </a>
                         <small class="admin-subtext">{String(row.id)}</small>
+                        <small class="admin-subtext">
+                          Mint: {String(
+                            row.mint_url || config.paidStorage.cashu.mintUrl,
+                          )}
+                        </small>
                       </Td>
                       <Td label="Purchase">
                         <strong>

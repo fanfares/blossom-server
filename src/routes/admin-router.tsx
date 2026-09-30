@@ -281,15 +281,24 @@ export function buildAdminRouter(
         typeof body.destination === "string" ? body.destination : "",
         session.pubkey,
         config.paidStorage.treasury.lightningAddress ?? "",
+        typeof body.mintUrl === "string"
+          ? {
+            url: body.mintUrl,
+            configured: config.paidStorage.cashu.mintUrl,
+            approved: config.paidStorage.approvedMintUrls,
+          }
+          : undefined,
       );
     } catch (error) {
       if (
-        error instanceof Error && error.message.startsWith("Enter a Lightning")
+        error instanceof Error &&
+        (error.message.startsWith("Enter a Lightning") ||
+          error.message.startsWith("Select a mint"))
       ) return c.json({ error: error.message }, 400);
       throw error;
     }
     return c.redirect(
-      "/admin/payments?notice=Destination%20saved%20for%20future%20settlements.",
+      "/admin/payments?notice=Payment%20settings%20saved.%20Existing%20invoices%20keep%20their%20original%20mint.",
       303,
     );
   });

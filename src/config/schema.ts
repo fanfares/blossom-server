@@ -473,6 +473,22 @@ const ListSchema = z.object({
 });
 
 const PaidStorageSchema = z.object({
+  approvedMintUrls: z.array(
+    z.string().url().refine(
+      (value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === "https:" && !url.username && !url.password &&
+            !url.search && !url.hash;
+        } catch {
+          return false;
+        }
+      },
+      "Approved mints must use HTTPS without credentials, query strings, or fragments.",
+    ),
+  ).max(20).default([]).describe(
+    "Additional operator-vetted Cashu mints selectable in the admin dashboard. The configured cashu.mintUrl is always approved. Vet HTTPS public endpoints and Cashu/Lightning support before adding them.",
+  ),
   enabled: z
     .boolean()
     .default(false)

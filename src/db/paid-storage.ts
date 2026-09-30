@@ -2,6 +2,7 @@ import type { Client } from "@libsql/client";
 
 export interface StoragePurchaseRecord {
   id: string;
+  mintUrl?: string;
   pubkey: string;
   units: number;
   quotaBytes: number;
@@ -63,6 +64,7 @@ function rowToPurchase(
     alignedExpiresAt: row[14] === null ? null : Number(row[14]),
     baseAmountSats: Number(row[15] ?? row[5]),
     alignmentAmountSats: Number(row[16] ?? 0),
+    mintUrl: row[17] == null ? undefined : String(row[17]),
   };
 }
 
@@ -81,7 +83,8 @@ const PURCHASE_SELECT_COLUMNS = `${PURCHASE_COLUMNS},
   COALESCE((SELECT a.base_amount_sats FROM storage_purchase_alignments a
             WHERE a.purchase_id = storage_purchases.id), amount_sats),
   COALESCE((SELECT a.alignment_amount_sats FROM storage_purchase_alignments a
-            WHERE a.purchase_id = storage_purchases.id), 0)
+            WHERE a.purchase_id = storage_purchases.id), 0),
+  (SELECT m.mint_url FROM storage_purchase_mints m WHERE m.purchase_id = storage_purchases.id)
 `;
 
 function storagePurchaseInsert(purchase: StoragePurchaseRecord) {
@@ -107,11 +110,24 @@ function storagePurchaseInsert(purchase: StoragePurchaseRecord) {
   };
 }
 
+function mintSnapshotStatements(purchase: StoragePurchaseRecord) {
+  return purchase.mintUrl
+    ? [{
+      sql:
+        "INSERT INTO storage_purchase_mints (purchase_id, mint_url) VALUES (?, ?)",
+      args: [purchase.id, purchase.mintUrl],
+    }]
+    : [];
+}
+
 export async function insertStoragePurchase(
   db: Client,
   purchase: StoragePurchaseRecord,
 ): Promise<void> {
-  await db.execute(storagePurchaseInsert(purchase));
+  await db.batch([
+    storagePurchaseInsert(purchase),
+    ...mintSnapshotStatements(purchase),
+  ], "write");
 }
 
 export async function insertStorageExtensionPurchase(
@@ -122,6 +138,7 @@ export async function insertStorageExtensionPurchase(
   await db.batch(
     [
       storagePurchaseInsert(purchase),
+      ...mintSnapshotStatements(purchase),
       {
         sql: "INSERT INTO storage_purchase_extensions (purchase_id) VALUES (?)",
         args: [purchase.id],
@@ -145,6 +162,7 @@ export async function insertStorageAlignedPurchase(
   await db.batch(
     [
       storagePurchaseInsert(purchase),
+      ...mintSnapshotStatements(purchase),
       {
         sql: `INSERT INTO storage_purchase_alignments
               (purchase_id, target_expires_at, base_amount_sats, alignment_amount_sats)

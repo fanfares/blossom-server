@@ -22,6 +22,7 @@ import {
 import { countUsers, insertBlob, listAllUsers } from "../../src/db/blobs.ts";
 import { pruneStorage } from "../../src/prune/prune.ts";
 import { LocalStorage } from "../../src/storage/local.ts";
+import { getActiveMint } from "../../src/db/storage-mints.ts";
 import { getStorageQuotaSummary } from "../../src/db/paid-storage.ts";
 import { PaidStorageService } from "../../src/paid-storage/service.ts";
 import {
@@ -53,6 +54,7 @@ Deno.test({
         lookupRelays: [],
       },
       paidStorage: {
+        approvedMintUrls: ["https://new.example/mint"],
         enabled: true,
         quotaBytesPerUnit: 1000,
         treasury: { enabled: true, lightningAddress: "old@example.com" },
@@ -259,6 +261,23 @@ Deno.test({
         await getTreasuryDestination(db, "old@example.com"),
         "new@example.com",
       );
+      const rejectedMint = await app.request(
+        "http://localhost/payments/destination",
+        {
+          method: "POST",
+          headers,
+          body: new URLSearchParams({
+            password: "admin-password",
+            destination: "attacker@example.com",
+            mintUrl: "https://unapproved.example",
+          }),
+        },
+      );
+      assertEquals(rejectedMint.status, 400);
+      assertEquals(
+        await getTreasuryDestination(db, "old@example.com"),
+        "new@example.com",
+      );
       const change = await app.request(
         "http://localhost/payments/destination",
         {
@@ -267,6 +286,7 @@ Deno.test({
           body: new URLSearchParams({
             password: "admin-password",
             destination: "last@example.com",
+            mintUrl: "https://new.example/mint",
           }),
         },
       );
@@ -274,6 +294,10 @@ Deno.test({
       assertEquals(
         await getTreasuryDestination(db, "old@example.com"),
         "last@example.com",
+      );
+      assertEquals(
+        await getActiveMint(db, config.paidStorage.cashu.mintUrl),
+        "https://new.example/mint",
       );
       const persisted = await initDb({ path: join(dir, "test.db") });
       assertEquals(

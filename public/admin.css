@@ -1620,3 +1620,36 @@ img, video {
     margin-bottom: 0.4rem;
   }
 }
+.admin-dashboard .admin-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  min-height: 40px;
+  padding: 0 1rem;
+  box-sizing: border-box;
+  border: 1px solid #ffffff1a;
+  border-radius: 2rem;
+  font-size: 0.8rem;
+  color: #d1d5db;
+  background: #ffffff0a;
+}
+.admin-dashboard .admin-filter-clear:hover {
+  color: #fff;
+  border-color: #ffffff33;
+}
+.admin-dashboard .admin-settings-form select {
+  width: 100%;
+  background: #0000004d;
+  border: 1px solid #ffffff1a;
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  color: #e5e7eb;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.admin-dashboard .admin-filter-form > button,
+.admin-dashboard .admin-filter-clear {
+  height: 40px;
+  box-sizing: border-box;
+}

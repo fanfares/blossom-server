@@ -394,9 +394,11 @@ export async function inspectAndIndexEvent(
     ...references.map((reference) => reference.name ?? ""),
   ].filter(Boolean).join(" ").slice(0, 8_000);
   statements.push({
-    sql: `INSERT OR REPLACE INTO admin_event_search
+    sql: `INSERT INTO admin_event_search
           (event_id, title, author_name, author_nip05, search_text, refreshed_at)
-          VALUES (?, ?, '', '', ?, unixepoch())`,
+          VALUES (?, ?, '', '', ?, unixepoch())
+          ON CONFLICT(event_id) DO UPDATE SET title = excluded.title,
+            search_text = excluded.search_text, refreshed_at = excluded.refreshed_at`,
     args: [event.id, title, searchText],
   });
   for (const reference of references) {

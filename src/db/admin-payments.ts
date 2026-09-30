@@ -1,3 +1,4 @@
+import { mintChangeStatements } from "./storage-mints.ts";
 import type { Client } from "@libsql/client";
 
 export function validateTreasuryDestination(value: string): string {
@@ -26,6 +27,7 @@ export async function setTreasuryDestination(
   destination: string,
   actor: string,
   fallback: string,
+  mint?: { url: string; configured: string; approved: string[] },
 ): Promise<void> {
   destination = validateTreasuryDestination(destination);
   if (!/^[a-f0-9]{64}$/.test(actor)) {
@@ -33,6 +35,9 @@ export async function setTreasuryDestination(
   }
   const now = Math.floor(Date.now() / 1000);
   await db.batch([
+    ...(mint
+      ? mintChangeStatements(mint.url, actor, mint.configured, mint.approved)
+      : []),
     {
       sql:
         `INSERT INTO admin_treasury_audit (destination, previous_destination, changed_at, changed_by)
@@ -70,6 +75,7 @@ export async function listAdminPayments(
       sql:
         `SELECT p.id, p.pubkey, p.amount_sats, p.quota_bytes, p.duration_seconds, p.state,
       p.created_at, p.credited_at,
+      (SELECT m.mint_url FROM storage_purchase_mints m WHERE m.purchase_id=p.id) AS mint_url,
       EXISTS(SELECT 1 FROM storage_purchase_extensions e WHERE e.purchase_id = p.id) AS is_extension,
       (SELECT target_expires_at FROM storage_purchase_alignments a WHERE a.purchase_id = p.id) AS aligned_expires_at,
       (SELECT expires_at FROM storage_grants g WHERE g.purchase_id = p.id) AS grant_expires_at,
