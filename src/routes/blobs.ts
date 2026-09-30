@@ -21,6 +21,7 @@ import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
+import { blobCacheControl, matchesBlobETag } from "../utils/blob-cache.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const ACTIVE_DOCUMENT_TYPES = new Set([
@@ -93,6 +94,23 @@ export function buildBlobsRouter(
     }
     const blob = await getBlob(db, hash);
 
+    // Indexed artwork has immutable bytes. Check quarantine first, then validate
+    // from metadata without an R2 HEAD/GET or an image-body transfer on feed reload.
+    const ifNoneMatch = ctx.req.header("if-none-match");
+    if (
+      blob && blobCacheControl(blob.type) !== "no-store" &&
+      matchesBlobETag(ifNoneMatch, hash)
+    ) {
+      touchBlob(db, hash, Math.floor(Date.now() / 1000)).catch((err) =>
+        console.warn("touchBlob failed:", err)
+      );
+      return ctx.body(null, 304, {
+        ETag: `"${hash}"`,
+        "Cache-Control": blobCacheControl(blob.type),
+        "Last-Modified": new Date(blob.uploaded * 1000).toUTCString(),
+      });
+    }
+
     const candidateExts = blob
       ? [mimeToExt(blob.type), requestedExt, ""]
       : [requestedExt, ""];
@@ -121,7 +139,7 @@ export function buildBlobsRouter(
       "Content-Type": mimeType,
       "X-Content-Type-Options": "nosniff",
       "Accept-Ranges": "bytes",
-      "Cache-Control": "no-store",
+      "Cache-Control": blobCacheControl(blob?.type),
       ETag: `"${hash}"`,
       "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
     };
@@ -138,19 +156,13 @@ export function buildBlobsRouter(
 
     // Conditional request: If-None-Match (RFC 9110 §13.1.2)
     // The SHA-256 hash is a perfect ETag — content-addressed, immutable, already computed.
-    // Short-circuit before storage I/O: only the DB lookup has occurred at this point.
-    const ifNoneMatch = ctx.req.header("if-none-match");
-    if (ifNoneMatch) {
-      const tags = ifNoneMatch.split(",").map((t) =>
-        t.trim().replace(/^"(.*)"$/, "$1")
-      );
-      if (tags.includes(hash) || tags.includes("*")) {
-        return ctx.body(null, 304, {
-          ETag: headers["ETag"],
-          "Cache-Control": headers["Cache-Control"],
-          "Last-Modified": headers["Last-Modified"],
-        });
-      }
+    // Unindexed blobs still resolve their storage key before validating access.
+    if (matchesBlobETag(ifNoneMatch, hash)) {
+      return ctx.body(null, 304, {
+        ETag: headers["ETag"],
+        "Cache-Control": headers["Cache-Control"],
+        "Last-Modified": headers["Last-Modified"],
+      });
     }
 
     if (ctx.req.method === "HEAD") {

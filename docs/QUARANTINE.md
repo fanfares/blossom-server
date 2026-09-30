@@ -23,10 +23,13 @@ held metadata and owner rows. Both pruning paths refuse physical deletion when
 the guarded metadata deletion fails. Quarantined bytes are excluded from quota
 usage/reservation checks, without removing purchased grants.
 
-Published media now uses Cache-Control: no-store, replacing the previous
-year-long immutable policy. This makes subsequent origin requests consult the
-current hold, at the cost of more network traffic for repeated media requests.
-It cannot revoke downloads, active streams, old browser caches, copies on other
+Passive image artwork uses private, no-cache, must-revalidate with its hash as
+ETag. Browsers may keep the bytes, but must validate access before reusing them;
+quarantine is checked before a 304. Indexed image validation avoids blob-storage
+HEAD/GET calls and body transfers. Audio, ciphertext, active documents, missing
+MIME metadata and held files retain no-store. This replaces the previous
+year-long immutable policy without a stale-while-revalidate exposure window. It
+cannot revoke downloads, active streams, old browser caches, copies on other
 servers or existing frontend image optimizer caches. External cache removal must
 be handled and verified separately; this dashboard does not claim a globally
 verified takedown.
