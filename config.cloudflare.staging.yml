@@ -20,6 +20,11 @@ database:
   authToken: "${TURSO_AUTH_TOKEN}"
 
 storage:
+  # Keep staging media indefinitely, including after paid quota expires.
+  rules:
+    - type: "*"
+      expiration: "never"
+  removeWhenNoOwners: false
   backend: r2
   r2:
     accountId: "${CF_ACCOUNT_ID}"

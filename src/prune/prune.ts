@@ -51,6 +51,14 @@ export async function pruneStorage(
   let deleted = 0;
   let errors = 0;
 
+  // A fully permanent profile needs no periodic full-inventory database scan.
+  if (
+    !removeWhenNoOwners &&
+    rules.every((rule) => rule.expiration.trim().toLowerCase() === "never")
+  ) {
+    return { deleted, errors };
+  }
+
   // Tracks sha256 hashes processed in this run to avoid double-deletion when
   // multiple rules overlap (e.g. "image/*" and "*" could match the same blob).
   const checked = new Set<string>();

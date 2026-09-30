@@ -9,7 +9,7 @@ export const StorageRuleSchema = z.object({
   expiration: z
     .string()
     .describe(
-      'How long a blob may go unaccessed before being pruned. Human-readable duration: "7 days", "1 month", "24 hours".',
+      'Use "never" for indefinite retention, or a duration without access before pruning. Human-readable duration: "7 days", "1 month", "24 hours".',
     ),
   pubkeys: z
     .array(z.string())

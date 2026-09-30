@@ -395,6 +395,14 @@ storage:
       expiration: 1 week
 ```
 
+Use `expiration: "never"` with a matching MIME rule to retain files
+indefinitely. The staging Cloudflare profile explicitly uses `type: "*"`,
+`expiration: "never"`, and `removeWhenNoOwners: false`. Paid grant expiry
+restricts new uploads; it does not delete those retained files. Deliberate user
+deletion remains available. Removing all rules would reject uploads, so keep the
+permanent catch-all rule. The read-only retention configuration remains
+inspectable at `/admin/rules`.
+
 Rules can be scoped to specific Nostr pubkeys (hex) to give certain users
 different retention:
 
@@ -543,7 +551,7 @@ both the response body and an `X-Reason` header.
 ## Admin Dashboard
 
 Enable the server-rendered admin dashboard (Hono JSX, no separate SPA) to manage
-blobs, linked Nostr events, users, rules, and reports:
+blobs, linked Nostr events, users, storage purchases, and reports:
 
 ```yaml
 dashboard:
@@ -563,12 +571,33 @@ The dashboard is available at `http://localhost:3000/admin`. An administrator
 first signs a replay-protected challenge with an allowlisted NIP-07 browser
 extension, then enters the configured password. It provides pages for:
 
-- **Blobs** — browse, search, sort, classify, preview, and force-delete blobs
+- **Blobs** — browse, search, sort, classify, and preview blobs
 - **Events** — inspect a hex/note/nevent/naddr from configured relays and link
   its public or encrypted files for moderation
-- **Users** — list uploaders with Nostr profile metadata lookup
-- **Rules** — view active storage retention rules
-- **Reports** — review and dismiss BUD-09 blob reports
+- **Users** — list uploaders and purchasers with profile lookup, active quota,
+  used/reserved/available bytes, expiry, and a link to purchase history
+- **Payments** — inspect purchases, amounts, capacity, terms, and durable wallet
+  forwarding status. Treasury destination changes require the admin password
+  again and are saved with a signed-in administrator audit trail
+- **Reports** — sync verified NIP-56 kind-1984 reports from configured relays
+  about local uploaders or indexed events; follow event/address/profile links
+  and mark reports reviewed without deleting content. BUD-09 file reports remain
+  available at `/admin/blob-reports`
+
+Wallet destination overrides are stored in the database and survive restarts.
+The configured Lightning address is the fallback until an override is saved.
+Only future settlement operations pick up a changed destination: an existing
+outbox transfer always retains its original destination. Forwarding status is
+separate from invoice payment and storage crediting. Private Cashu proofs and
+payment preimages are never included in dashboard queries.
+
+Report pages use the persisted index; relay sync is explicit and bounded to
+three seconds per parallel query, 1,000 uploaders/indexed events, and 1,000
+reports per import. A limit warning indicates partial coverage. Available relay
+history determines what can be imported. Repeated sync preserves reviewed
+status. The dashboard displays allegations from all imported signers; the
+client's curator trust gate decides which reports affect public content
+warnings.
 
 ### Test uploads and the admin dashboard locally
 

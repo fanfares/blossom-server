@@ -1,3 +1,4 @@
+import { getTreasuryDestination } from "../db/admin-payments.ts";
 import type { Client } from "@libsql/client";
 import { ulid } from "@std/ulid";
 import type { PaidStorageConfig } from "../config/schema.ts";
@@ -451,26 +452,32 @@ export class PaidStorageService {
     }
     if (providerStatus.state === "paid") {
       const now = this.now();
+      const destination = this.config.treasury.enabled
+        ? await getTreasuryDestination(
+          this.db,
+          this.config.treasury.lightningAddress ?? "",
+        )
+        : undefined;
       if (purchase.alignedExpiresAt !== null) {
         await creditStorageAlignedPurchase(
           this.db,
           purchase,
           now,
-          this.treasuryDestination,
+          destination,
         );
       } else if (purchase.purchaseType === "extension") {
         await creditStorageExtensionPurchase(
           this.db,
           purchase,
           now,
-          this.treasuryDestination,
+          destination,
         );
       } else {
         await creditStoragePurchase(
           this.db,
           purchase,
           now,
-          this.treasuryDestination,
+          destination,
         );
       }
       this.forwardTreasuryPurchase(purchase.id).catch((error) => {

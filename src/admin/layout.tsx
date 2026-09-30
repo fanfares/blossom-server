@@ -1,3 +1,4 @@
+/** @jsxImportSource @hono/hono/jsx */
 import type { Child, FC } from "@hono/hono/jsx";
 
 // Shared inline JS helpers: confirm → fetch → reload for action buttons.
@@ -21,14 +22,14 @@ async function adminAction(url, method, msg) {
 
 interface LayoutProps {
   title: string;
-  section: "blobs" | "users" | "rules" | "reports";
+  section: "blobs" | "users" | "rules" | "payments" | "reports";
   children?: Child;
 }
 
 const NAV_ITEMS = [
   { id: "blobs", label: "Blobs", href: "/admin/blobs" },
   { id: "users", label: "Users", href: "/admin/users" },
-  { id: "rules", label: "Rules", href: "/admin/rules" },
+  { id: "payments", label: "Payments", href: "/admin/payments" },
   { id: "reports", label: "Reports", href: "/admin/reports" },
 ] as const;
 
@@ -58,7 +59,7 @@ export const AdminLayout: FC<LayoutProps> = ({ title, section, children }) => (
                   Blossom Admin
                 </h1>
                 <p class="mt-3 max-w-2xl text-sm leading-6 text-gray-300">
-                  Review stored media, publishers, policies, and reports.
+                  Review stored media, publishers, payments, and reports.
                 </p>
               </div>
               <nav aria-label="Admin sections" class="mt-6">
@@ -142,10 +143,13 @@ export const Th: FC<{ children?: Child }> = ({ children }) => (
   <th class="px-4 py-4 text-left font-medium">{children}</th>
 );
 
-export const Td: FC<{ children?: Child; mono?: boolean }> = (
-  { children, mono },
+export const Td: FC<{ children?: Child; mono?: boolean; label?: string }> = (
+  { children, mono, label },
 ) => (
-  <td class={`px-4 py-4 text-gray-300 ${mono ? "font-mono text-xs" : ""}`}>
+  <td
+    data-label={label}
+    class={`px-4 py-4 text-gray-300 ${mono ? "font-mono text-xs" : ""}`}
+  >
     {children}
   </td>
 );

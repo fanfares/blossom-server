@@ -1,3 +1,5 @@
+/** @jsxImportSource @hono/hono/jsx */
+import type { StorageQuotaSummary } from "../db/paid-storage.ts";
 import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import type { BlobRecord } from "../db/handle.ts";
@@ -26,10 +28,13 @@ interface UserDetailPageProps {
   db: IDbHandle;
   config: Config;
   pubkey: string;
+  quota?: StorageQuotaSummary;
+  purchasedBytes?: number;
+  paidSats?: number;
 }
 
 export const UserDetailPage: FC<UserDetailPageProps> = async (
-  { db, config, pubkey },
+  { db, config, pubkey, quota, purchasedBytes = 0, paidSats = 0 },
 ) => {
   // Validate pubkey is a 64-char hex string
   if (!/^[0-9a-f]{64}$/i.test(pubkey)) {
@@ -62,26 +67,6 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
     }),
   ]);
   const total = blobs.length;
-
-  if (total === 0) {
-    return (
-      <AdminLayout title="User not found" section="users">
-        <div class="mb-4">
-          <a
-            href="/admin/users"
-            class="text-sm text-gray-500 hover:text-gray-300"
-          >
-            ← Back to Users
-          </a>
-        </div>
-        <PageHeader title="User not found" />
-        <p class="text-gray-400 text-sm">
-          No blobs found for pubkey{" "}
-          <code class="break-all font-mono text-cyan-200/75">{pubkey}</code>
-        </p>
-      </AdminLayout>
-    );
-  }
 
   const totalSize = blobs.reduce(
     (acc: number, b: BlobRecord) => acc + b.size,
@@ -155,6 +140,54 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
           <p class="mt-1 text-xs text-gray-500">Across all files</p>
         </div>
       </div>
+
+      <section class="admin-finance-settings">
+        <h2>Storage balance</h2>
+        {config.paidStorage.enabled && quota
+          ? (
+            <>
+              <div class="admin-metrics">
+                <div>
+                  <span>Available for uploads</span>
+                  <strong>{formatBytes(quota.availableBytes)}</strong>
+                </div>
+                <div>
+                  <span>Active purchased quota</span>
+                  <strong>{formatBytes(quota.quotaBytes)}</strong>
+                </div>
+                <div>
+                  <span>Used / reserved</span>
+                  <strong>
+                    {formatBytes(quota.usedBytes)} /{" "}
+                    {formatBytes(quota.reservedBytes)}
+                  </strong>
+                </div>
+              </div>
+              <p>
+                Latest active grant expiry: {quota.expiresAt
+                  ? formatDate(quota.expiresAt)
+                  : "No active grants"}. Individual purchases can expire
+                earlier.
+              </p>
+              <p>
+                Lifetime new capacity purchased: {formatBytes(purchasedBytes)} ·
+                {" "}
+                {paidSats.toLocaleString()}{" "}
+                sats paid. Payments include renewals, which extend existing
+                capacity.
+              </p>
+            </>
+          )
+          : (
+            <p>
+              Paid storage is disabled. Upload access follows the server
+              allowlist.
+            </p>
+          )}
+        <a href={`/admin/payments?pubkey=${pubkey}`}>
+          View this user’s purchases and wallet forwarding →
+        </a>
+      </section>
 
       {/* Identity card */}
       <div class="mb-6 space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">

@@ -550,7 +550,12 @@ export async function listAllUsers(
 
   let sql = `
     SELECT o.pubkey, GROUP_CONCAT(o.blob, ',') AS blobs
-    FROM owners o
+    FROM (
+      SELECT pubkey, blob FROM owners
+      UNION ALL
+      SELECT DISTINCT p.pubkey, NULL AS blob FROM storage_purchases p
+      WHERE NOT EXISTS (SELECT 1 FROM owners existing WHERE existing.pubkey = p.pubkey)
+    ) o
     ${where}
     GROUP BY o.pubkey
     ORDER BY o.${safeCol} ${safeDir}
@@ -603,7 +608,12 @@ export async function countUsers(
     ? `WHERE ${conditions.join(" AND ")}`
     : "";
   const rs = await db.execute({
-    sql: `SELECT COUNT(DISTINCT o.pubkey) FROM owners o ${where}`,
+    sql: `SELECT COUNT(DISTINCT o.pubkey) FROM (
+      SELECT pubkey, blob FROM owners
+      UNION ALL
+      SELECT DISTINCT p.pubkey, NULL AS blob FROM storage_purchases p
+      WHERE NOT EXISTS (SELECT 1 FROM owners existing WHERE existing.pubkey = p.pubkey)
+    ) o ${where}`,
     args,
   });
   return (rs.rows[0]?.[0] as number) ?? 0;
