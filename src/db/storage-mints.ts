@@ -1,5 +1,24 @@
 import type { Client } from "@libsql/client";
 
+/** Pin pre-snapshot receipts before any external checks or configuration rotation. */
+export async function initializeStorageMints(
+  db: Client,
+  legacyMint: string,
+): Promise<void> {
+  await db.batch([
+    {
+      sql:
+        "INSERT OR IGNORE INTO storage_legacy_mint (id, mint_url) VALUES (1, ?)",
+      args: [legacyMint],
+    },
+    {
+      sql: `INSERT OR IGNORE INTO storage_purchase_mints (purchase_id, mint_url)
+      SELECT id, (SELECT mint_url FROM storage_legacy_mint WHERE id = 1) FROM storage_purchases`,
+      args: [],
+    },
+  ], "write");
+}
+
 export function approvedMintUrls(
   configured: string,
   additional: string[],
@@ -26,7 +45,11 @@ export async function getPurchaseMint(
     sql: "SELECT mint_url FROM storage_purchase_mints WHERE purchase_id = ?",
     args: [purchaseId],
   });
-  return result.rows[0] ? String(result.rows[0][0]) : configured;
+  if (result.rows[0]) return String(result.rows[0][0]);
+  const legacy = await db.execute(
+    "SELECT mint_url FROM storage_legacy_mint WHERE id = 1",
+  );
+  return legacy.rows[0] ? String(legacy.rows[0][0]) : configured;
 }
 
 /** Atomically snapshot legacy purchases before activating an operator-approved mint. */
@@ -46,7 +69,7 @@ export function mintChangeStatements(
   return [
     {
       sql:
-        "INSERT OR IGNORE INTO storage_purchase_mints (purchase_id, mint_url) SELECT id, ? FROM storage_purchases",
+        "INSERT OR IGNORE INTO storage_purchase_mints (purchase_id, mint_url) SELECT id, COALESCE((SELECT mint_url FROM storage_legacy_mint WHERE id = 1), ?) FROM storage_purchases",
       args: [configured],
     },
     {

@@ -383,12 +383,27 @@ export async function listPendingStoragePurchases(
   const rs = await db.execute({
     sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
           FROM storage_purchases
+          LEFT JOIN storage_purchase_reconciliation r ON r.purchase_id = storage_purchases.id
           WHERE state = 'pending'
             AND (? IS NULL OR pubkey = ?)
-          ORDER BY created_at ASC LIMIT ?`,
+          ORDER BY COALESCE(r.last_checked_at, 0) ASC, created_at ASC, id ASC LIMIT ?`,
     args: [pubkey ?? null, pubkey ?? null, limit],
   });
   return rs.rows.map(rowToPurchase);
+}
+
+/** Persist attempts before contacting a mint so failed checks do not monopolize the sweep. */
+export async function recordStorageReconciliationAttempt(
+  db: Client,
+  purchaseId: string,
+  now: number,
+): Promise<void> {
+  await db.execute({
+    sql:
+      `INSERT INTO storage_purchase_reconciliation (purchase_id, last_checked_at) VALUES (?, ?)
+      ON CONFLICT(purchase_id) DO UPDATE SET last_checked_at = excluded.last_checked_at`,
+    args: [purchaseId, now],
+  });
 }
 
 export async function creditStoragePurchase(

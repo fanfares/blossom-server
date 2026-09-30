@@ -6,6 +6,32 @@ The dashboard and payment changes are ready for general review. Keep PR #20
 stacked on PR #18 until that review is accepted. This review does not authorize
 merging or a production deployment.
 
+### Reliability follow-up (2026-09-30)
+
+- Profile metadata is converted from signed kind-0 JSON to plain validated
+  strings before rendering or indexing. Malformed fields use existing pubkey
+  fallbacks; HTTP(S) avatar URLs, name aliases and NIP-05 remain supported.
+- Explicit refresh queries relays even when EventStore already contains a
+  profile. Only matching, verified events can replace an identity; newer stored
+  profiles win over older relay responses and slower concurrent lookups. Relay
+  failures preserve safe cached metadata, and deadlines retain valid events
+  already received.
+- Settlement attempts are persisted and pending batches prioritize the least
+  recently checked receipts. Failed older invoices cannot continually exclude
+  newer paid invoices, including after restarting the database/server.
+- Startup atomically pins legacy receipts to a persisted original mint before
+  serving requests. If rotating mints during the first upgrade, configure
+  `paidStorage.cashu.legacyMintUrl` explicitly; an unrecorded historical mint
+  cannot be inferred. Later config changes preserve old invoice/payout routing.
+- Full suite: **224 passed, 0 failed**, including malformed-profile rendering,
+  genuine refresh/failure fallbacks, settlement fairness across restart and
+  legacy mint upgrade/rotation regressions. Format, lint and type checks pass.
+
+The API-host DELETE preflight regression identified in the review is
+deliberately deferred at the user's request. No DELETE route or CORS behavior
+changed in this follow-up. Browser-based owner deletion needs that separate fix
+before use.
+
 ## Checks performed
 
 - Full Deno suite: **212 passed, 0 failed**. Formatting, lint, and `main.ts`

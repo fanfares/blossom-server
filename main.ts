@@ -129,6 +129,7 @@ if (config.dashboard.enabled) {
 
 // Build Hono app (async — landing router loads the prebuilt client JS at startup).
 const paidStorageService = new PaidStorageService(db, config.paidStorage);
+await paidStorageService.initialize();
 const app = await buildApp(db, storage, config, { paidStorageService });
 
 // Reconcile paid quotes independently of browser polling so a reload, crash, or

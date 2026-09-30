@@ -545,6 +545,9 @@ const PaidStorageSchema = z.object({
     ),
   cashu: z
     .object({
+      legacyMintUrl: z.string().url().optional().describe(
+        "Original mint for receipts created before mint snapshots. Set explicitly if changing mintUrl during the first upgrade; persisted at initialization and never overwritten.",
+      ),
       mintUrl: z
         .string()
         .url()
@@ -557,6 +560,7 @@ const PaidStorageSchema = z.object({
     .transform((v) =>
       v ??
         z.object({
+          legacyMintUrl: z.string().url().optional(),
           mintUrl: z.string().url().default(
             "https://mint.minibits.cash/Bitcoin",
           ),

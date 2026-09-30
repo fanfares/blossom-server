@@ -598,6 +598,19 @@ balances. Removing the active mint from the approved list stops new quotes until
 an administrator chooses another approved mint; existing purchases remain
 recoverable using their pinned mint.
 
+Startup now pins legacy invoices before serving requests. The original mint is
+persisted separately so later configuration changes cannot redirect their
+settlement or treasury recovery. When changing `cashu.mintUrl` during the first
+upgrade, set `paidStorage.cashu.legacyMintUrl` to the old issuing mint
+explicitly; otherwise the current configured mint is used for legacy receipts.
+The server cannot infer a historical mint that was never recorded. New invoices
+always retain their own mint snapshot.
+
+Background settlement prioritizes invoices checked least recently. Attempt
+timestamps survive restarts, so persistently failing old invoices cannot
+monopolize every batch. Failures remain pending for recovery and storage credit
+stays idempotent.
+
 Only future settlement operations pick up a changed destination: an existing
 outbox transfer always retains its original destination. Forwarding status is
 separate from invoice payment and storage crediting. Private Cashu proofs and
@@ -620,9 +633,9 @@ own SQLite database and blob directory:
 deno task dev:moderation
 ```
 
-Then open `http://localhost:3001/admin` and use the local-only password
-`local-admin-only` after signing with an allowlisted Nostr browser extension.
-All uploads and moderation changes stay under `data/moderation-test/`; no remote
+Then open `http://localhost:3001/admin` and use the local-only password from
+your `.env` after signing with an allowlisted Nostr browser extension. All
+uploads and moderation changes stay under `data/moderation-test/`; no remote
 database or Cloudflare storage is changed.
 
 ## Development
