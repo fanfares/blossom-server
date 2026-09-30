@@ -1653,3 +1653,41 @@ img, video {
   height: 40px;
   box-sizing: border-box;
 }
+
+/* Keep toolbar controls aligned even when labels or forms wrap. */
+.admin-dashboard .admin-search > :is(input, select, button, a),
+.admin-dashboard .admin-report-tools > form > button,
+.admin-dashboard .admin-report-tools > a,
+.admin-dashboard .admin-event-tools summary,
+.admin-dashboard .admin-event-tools button,
+.admin-dashboard .admin-event-tools input {
+  height: 40px;
+  box-sizing: border-box;
+}
+.admin-dashboard .admin-search > :is(button, a),
+.admin-dashboard .admin-report-tools > form > button,
+.admin-dashboard .admin-report-tools > a,
+.admin-dashboard .admin-event-tools summary,
+.admin-dashboard .admin-event-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.admin-dashboard .admin-report-tools > form:not(.admin-search) {
+  display: flex;
+  align-self: flex-end;
+  margin: 0;
+}
+.admin-dashboard .admin-report-tools > a {
+  align-self: flex-end;
+}
+.admin-dashboard .admin-event-tools {
+  align-items: flex-start;
+}
+.admin-dashboard .admin-event-tools > form {
+  display: flex;
+  margin: 0;
+}
+.admin-dashboard .admin-event-tools details form {
+  align-items: center;
+}
