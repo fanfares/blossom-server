@@ -181,7 +181,7 @@ export const BlobsPage: FC<BlobsPageProps> = async (
       <div class="admin-event-tools mb-6 flex flex-wrap items-start justify-end gap-x-5 gap-y-3 px-1">
         <details class="group min-w-0">
           <summary class="cursor-pointer list-none text-xs font-semibold text-gray-500 transition-colors hover:text-cyan-100 [&::-webkit-details-marker]:hidden">
-            Inspect a specific event
+            <span>Inspect a specific event</span>
           </summary>
           <form
             method="post"
@@ -278,6 +278,9 @@ export const BlobsPage: FC<BlobsPageProps> = async (
                           title={blob.sha256}
                         >
                           {truncateHash(blob.sha256)}
+                          {blob.quarantined && (
+                            <Badge color="red">Quarantined</Badge>
+                          )}
                         </a>
                       </Td>
                       <Td>

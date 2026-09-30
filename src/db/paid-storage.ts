@@ -547,7 +547,7 @@ export async function getStorageQuotaSummary(
   const rs = await db.execute({
     sql: `SELECT
       COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0),
-      COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0),
+      COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1)), 0),
       COALESCE((SELECT SUM(size_bytes) FROM upload_reservations WHERE pubkey = ? AND expires_at > ?), 0),
       (SELECT MAX(expires_at) FROM storage_grants WHERE pubkey = ? AND expires_at > ?)`,
     args: [pubkey, now, pubkey, pubkey, now, pubkey, now],
@@ -606,7 +606,7 @@ export async function reserveStorageQuota(
           SELECT ?, ?, ?, ?
           WHERE ? <=
             COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0)
-            - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0)
+            - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1)), 0)
             - COALESCE((SELECT SUM(size_bytes) FROM upload_reservations WHERE pubkey = ? AND expires_at > ?), 0)`,
     args: [
       input.id,
@@ -644,7 +644,7 @@ export async function renewStorageReservation(
           WHERE id = ? AND pubkey = ?
             AND ? <=
               COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0)
-              - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0)
+              - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1)), 0)
               - COALESCE((SELECT SUM(size_bytes) FROM upload_reservations WHERE pubkey = ? AND id != ? AND expires_at > ?), 0)`,
     args: [
       input.sizeBytes,

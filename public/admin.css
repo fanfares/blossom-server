@@ -1691,3 +1691,40 @@ img, video {
 .admin-dashboard .admin-event-tools details form {
   align-items: center;
 }
+
+.admin-dashboard .admin-event-tools summary::after {
+  margin-left: 0.35rem;
+}
+.admin-dashboard .admin-event-tools summary,
+.admin-dashboard .admin-event-tools > form > button {
+  padding: 0;
+  line-height: 1.25;
+  font-size: 0.75rem;
+}
+.admin-dashboard .admin-moderation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+.admin-dashboard .admin-moderation-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: #a5f3fc;
+}
+.admin-dashboard .admin-event-tools > details {
+  margin: 0;
+}
+.admin-dashboard .admin-settings-form > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: #a5f3fc;
+}
+.admin-dashboard .admin-moderation-selection {
+  overflow-wrap: anywhere;
+}

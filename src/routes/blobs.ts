@@ -1,3 +1,4 @@
+import { isQuarantined } from "../db/quarantine.ts";
 /**
  * BUD-01: GET /:sha256[.ext] and HEAD /:sha256[.ext]
  *
@@ -86,6 +87,10 @@ export function buildBlobsRouter(
     const _auth = optionalAuth(ctx);
 
     // Lookup metadata — DB is the preferred index.
+    if (await isQuarantined(db, hash)) {
+      ctx.header("Cache-Control", "no-store");
+      return errorResponse(ctx, 404, "Blob not found");
+    }
     const blob = await getBlob(db, hash);
 
     const candidateExts = blob
@@ -116,7 +121,7 @@ export function buildBlobsRouter(
       "Content-Type": mimeType,
       "X-Content-Type-Options": "nosniff",
       "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": "no-store",
       ETag: `"${hash}"`,
       "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
     };

@@ -39,7 +39,7 @@ export const EventCard: FC<EventCardProps> = (
   const summary = group.event.tags.find((tag) => tag[0] === "summary")?.[1] ||
     (group.event.content.length <= 280 ? group.event.content : "");
   const preview = group.blobs.find(({ blob, reference }) =>
-    !reference.encrypted && blob.type?.startsWith("image/")
+    !blob.quarantined && !reference.encrypted && blob.type?.startsWith("image/")
   );
   const previewUrl = preview
     ? `${blobBaseUrl}/${preview.blob.sha256}${
@@ -70,6 +70,9 @@ export const EventCard: FC<EventCardProps> = (
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="min-w-0 flex-1">
               <div class="mb-3 flex flex-wrap items-center gap-2">
+                {group.blobs.some(({ blob }) => blob.quarantined) && (
+                  <Badge color="red">Contains quarantined files</Badge>
+                )}
                 <Badge color="blue">
                   {getEventKindLabel(group.event.kind)}
                 </Badge>
@@ -93,6 +96,11 @@ export const EventCard: FC<EventCardProps> = (
             </a>
           </div>
 
+          <div class="admin-moderation-actions">
+            <a href={`/admin/quarantine?scope=event&id=${group.event.id}`}>
+              Review and quarantine event files
+            </a>
+          </div>
           <div class="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-4">
             <a
               href={getFanfaresProfileUrl(group.event.pubkey, publicDomain)}

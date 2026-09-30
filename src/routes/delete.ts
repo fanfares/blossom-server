@@ -1,3 +1,4 @@
+import { isQuarantined } from "../db/quarantine.ts";
 /**
  * BUD-02: DELETE /:sha256[.ext]
  *
@@ -62,6 +63,10 @@ export function buildDeleteRouter(
       const blob = await getBlob(db, hash);
       if (!blob) {
         return errorResponse(ctx, 404, "Blob not found");
+      }
+
+      if (await isQuarantined(db, hash)) {
+        return errorResponse(ctx, 403, "File is held for moderation");
       }
 
       if (pubkey !== null) {

@@ -31,10 +31,19 @@ interface UserDetailPageProps {
   quota?: StorageQuotaSummary;
   purchasedBytes?: number;
   paidSats?: number;
+  quarantinedHashes?: string[];
 }
 
 export const UserDetailPage: FC<UserDetailPageProps> = async (
-  { db, config, pubkey, quota, purchasedBytes = 0, paidSats = 0 },
+  {
+    db,
+    config,
+    pubkey,
+    quota,
+    purchasedBytes = 0,
+    paidSats = 0,
+    quarantinedHashes = [],
+  },
 ) => {
   // Validate pubkey is a 64-char hex string
   if (!/^[0-9a-f]{64}$/i.test(pubkey)) {
@@ -75,6 +84,7 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
   const adminBlobs: AdminBlobRecord[] = blobs.map((blob) => ({
     ...blob,
     owners: [pubkey],
+    quarantined: quarantinedHashes.includes(blob.sha256),
     events: [],
   }));
   const grouped = groupBlobsByEvents(
@@ -106,6 +116,11 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
         </a>
       </div>
 
+      <div class="admin-moderation-actions">
+        <a href={`/admin/quarantine?scope=user&id=${pubkey}`}>
+          Review and quarantine this user’s files
+        </a>
+      </div>
       <PageHeader
         title={displayName ?? `User ${truncateHash(pubkey)}`}
         subtitle="Creator storage and publishing overview"

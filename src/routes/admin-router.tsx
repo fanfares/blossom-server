@@ -1,4 +1,10 @@
 /** @jsxImportSource @hono/hono/jsx */
+import { QuarantinePage } from "../admin/quarantine-page.tsx";
+import {
+  isQuarantined,
+  quarantineTargets,
+  setQuarantine,
+} from "../db/quarantine.ts";
 import { getCookie } from "@hono/hono/cookie";
 import { bodyLimit } from "@hono/hono/body-limit";
 import {
@@ -67,6 +73,67 @@ export function buildAdminRouter(
   registerAdminAuthentication(app, config);
   const walletFailures = new Map<string, { count: number; until: number }>();
   let reportRefresh: Promise<{ added: number; limited: boolean }> | undefined;
+
+  app.get("/quarantine", async (c) => {
+    const scope = c.req.query("scope") ?? "file";
+    const id = c.req.query("id") ?? "";
+    if (
+      !["file", "event", "user"].includes(scope) || !/^[a-f0-9]{64}$/.test(id)
+    ) return c.json({ error: "Invalid target" }, 400);
+    const hashes = await quarantineTargets(db, scope, id);
+    return c.html(
+      <QuarantinePage
+        scope={scope}
+        id={id}
+        hashes={hashes}
+        active={scope === "file" && await isQuarantined(db, id)}
+      />,
+    );
+  });
+  app.post("/quarantine", bodyLimit({ maxSize: 700000 }), async (c) => {
+    const session = await verifyAdminToken(
+      getCookie(c, ADMIN_SESSION_COOKIE),
+      "session",
+      config.dashboard.sessionSecret,
+    );
+    if (!session?.pubkey) {
+      return c.json({ error: "Admin session required" }, 401);
+    }
+    const body = await c.req.parseBody();
+    const scope = String(body.scope ?? "");
+    const id = String(body.id ?? "");
+    const reason = String(body.reason ?? "").trim();
+    if (
+      !["file", "event", "user"].includes(scope) ||
+      !/^[a-f0-9]{64}$/.test(id) || reason.length < 3 || reason.length > 1000 ||
+      !["quarantine", "restore"].includes(String(body.action))
+    ) return c.json({ error: "Invalid moderation request" }, 400);
+    if (body.action === "restore" && scope !== "file") {
+      return c.json({ error: "Restore individual files after review" }, 400);
+    }
+    const hashes = await quarantineTargets(db, scope, id);
+    if (!hashes.length || hashes.join(",") !== body.selection) {
+      return c.json({
+        error:
+          "File selection changed. Reload the confirmation page and review again.",
+      }, 409);
+    }
+    try {
+      await setQuarantine(
+        db,
+        hashes,
+        body.action === "quarantine",
+        session.pubkey,
+        reason,
+      );
+    } catch (error) {
+      if (error instanceof RangeError) {
+        return c.json({ error: error.message }, 409);
+      }
+      throw error;
+    }
+    return c.redirect(`/admin/blobs/${hashes[0]}`, 303);
+  });
 
   // ── SSR pages ───────────────────────────────────────────────────────────────
 
@@ -179,7 +246,7 @@ export function buildAdminRouter(
     }
   });
 
-  app.get("/blobs/:sha256", (c) => {
+  app.get("/blobs/:sha256", async (c) => {
     const sha256 = c.req.param("sha256");
     const host = c.req.header("host") ?? "localhost";
     return c.html(
@@ -188,6 +255,17 @@ export function buildAdminRouter(
         config={config}
         host={host}
         sha256={sha256}
+        quarantined={await isQuarantined(db, sha256)}
+        moderationHistory={(await db.execute({
+          sql:
+            "SELECT action, actor, reason, created_at FROM blob_quarantine_audit WHERE sha256 = ? ORDER BY id DESC LIMIT 50",
+          args: [sha256],
+        })).rows.map((row) => ({
+          action: String(row.action),
+          actor: String(row.actor),
+          reason: String(row.reason),
+          createdAt: Number(row.created_at),
+        }))}
       />,
     );
   });
@@ -219,6 +297,11 @@ export function buildAdminRouter(
         quota={quota}
         purchasedBytes={Number(paid.rows[0][0])}
         paidSats={Number(paid.rows[0][1])}
+        quarantinedHashes={(await db.execute({
+          sql:
+            "SELECT o.blob FROM owners o JOIN blob_quarantine q ON q.sha256 = o.blob WHERE o.pubkey = ? AND q.active = 1",
+          args: [pubkey],
+        })).rows.map((row) => String(row.blob))}
       />,
     );
   });

@@ -66,7 +66,8 @@ export async function insertBlob(
 
 export async function deleteBlob(db: Client, sha256: string): Promise<boolean> {
   const rs = await db.execute({
-    sql: "DELETE FROM blobs WHERE sha256 = ?",
+    sql:
+      "DELETE FROM blobs WHERE sha256 = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = blobs.sha256 AND q.active = 1)",
     args: [sha256],
   });
   return (rs.rowsAffected ?? 0) > 0;
@@ -83,7 +84,8 @@ export async function removeOwner(
   pubkey: string,
 ): Promise<boolean> {
   const rs = await db.execute({
-    sql: "DELETE FROM owners WHERE blob = ? AND pubkey = ?",
+    sql:
+      "DELETE FROM owners WHERE blob = ? AND pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = owners.blob AND q.active = 1)",
     args: [sha256, pubkey],
   });
   return (rs.rowsAffected ?? 0) > 0;
@@ -280,6 +282,7 @@ export async function getBlobsForPrune(
 
 /** Blob record enriched with an owners array — used by the admin API. */
 export interface AdminBlobRecord extends BlobRecord {
+  quarantined?: boolean;
   owners: string[];
   events: AdminBlobEvent[];
 }
@@ -391,7 +394,8 @@ export async function listAllBlobs(
            COALESCE((SELECT GROUP_CONCAT(
              e.event_id || ':' || e.pubkey || ':' || e.kind || ':' || ae.encrypted, ','
            ) FROM admin_event_blobs ae JOIN admin_events e ON e.event_id = ae.event_id
-             WHERE ae.blob = b.sha256), '') AS events
+             WHERE ae.blob = b.sha256), '') AS events,
+           EXISTS(SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1) AS quarantined
     FROM blobs b
     ${where}
     ORDER BY b.${safeCol} ${safeDir}
@@ -412,6 +416,7 @@ export async function listAllBlobs(
     size: row[1] as number,
     type: row[2] as string | null,
     uploaded: row[3] as number,
+    quarantined: Number(row[6]) === 1,
     owners: row[4] ? (row[4] as string).split(",") : [],
     events: row[5]
       ? (row[5] as string).split(",").map((entry) => {
