@@ -25,7 +25,6 @@ export interface EventBlobReference {
   encrypted: boolean;
   name?: string;
   role?: "preview" | "artwork" | "image";
-  sourceUrls?: string[];
   chunkIndex: number;
   chunkCount: number;
 }
@@ -143,9 +142,6 @@ export function extractEventBlobReferences(
           const previous = references.get(sha256);
           references.set(sha256, {
             sha256,
-            sourceUrls: [
-              ...new Set([...(previous?.sourceUrls ?? []), url.toString()]),
-            ],
             encrypted: encrypted || previous?.encrypted === true,
             name: name ?? previous?.name,
             role: role ?? previous?.role,
@@ -329,15 +325,6 @@ export async function indexEventsForAdmin(
         searchText,
       ],
     });
-    for (const reference of references) {
-      for (const source of reference.sourceUrls ?? []) {
-        statements.push({
-          sql:
-            "INSERT OR IGNORE INTO blossom_image_sources (sha256, source) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM blobs WHERE sha256=? AND type LIKE 'image/%')",
-          args: [reference.sha256, source, reference.sha256],
-        });
-      }
-    }
     const results = await db.batch(statements, "write");
     indexedLinks += linkResultIndexes.filter((index) =>
       (results[index].rowsAffected ?? 0) > 0
@@ -426,15 +413,6 @@ export async function inspectAndIndexEvent(
         reference.sha256,
       ],
     });
-  }
-  for (const reference of references) {
-    for (const source of reference.sourceUrls ?? []) {
-      statements.push({
-        sql:
-          "INSERT OR IGNORE INTO blossom_image_sources (sha256, source) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM blobs WHERE sha256=? AND type LIKE 'image/%')",
-        args: [reference.sha256, source, reference.sha256],
-      });
-    }
   }
   const results = await db.batch(statements, "write");
   references.forEach((reference, index) => {

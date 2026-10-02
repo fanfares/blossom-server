@@ -33,7 +33,6 @@ interface BlobDetailPageProps {
   host: string;
   sha256: string;
   quarantined?: boolean;
-  imagePurgeStatus?: string;
   moderationHistory?: {
     action: string;
     actor: string;
@@ -43,15 +42,7 @@ interface BlobDetailPageProps {
 }
 
 export const BlobDetailPage: FC<BlobDetailPageProps> = async (
-  {
-    db,
-    config,
-    host,
-    sha256,
-    quarantined = false,
-    imagePurgeStatus = "",
-    moderationHistory = [],
-  },
+  { db, config, host, sha256, quarantined = false, moderationHistory = [] },
 ) => {
   const blob = await db.getBlob(sha256);
 
@@ -114,9 +105,6 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
           {quarantined ? "Review and restore access" : "Quarantine file"}
         </a>
       </div>
-      {imagePurgeStatus && (
-        <p class="mb-5 text-sm text-gray-400">{imagePurgeStatus}</p>
-      )}
       {moderationHistory.length > 0 && (
         <details class="mb-5">
           <summary>Moderation history</summary>

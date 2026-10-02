@@ -61,33 +61,18 @@ export async function setQuarantine(
     }
     const now = Math.floor(Date.now() / 1000);
     await db.batch(
-      [
-        ...ordered.flatMap((hash) => [
-          {
-            sql:
-              "INSERT INTO blob_quarantine_audit(sha256, action, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)",
-            args: [hash, active ? "quarantine" : "restore", actor, reason, now],
-          },
-          {
-            sql:
-              "INSERT INTO blob_quarantine(sha256, active, updated_at, updated_by, reason) VALUES (?, ?, ?, ?, ?) ON CONFLICT(sha256) DO UPDATE SET active=excluded.active, updated_at=excluded.updated_at, updated_by=excluded.updated_by, reason=excluded.reason",
-            args: [hash, active ? 1 : 0, now, actor, reason],
-          },
-        ]),
-        ...(active
-          ? [{
-            sql:
-              `INSERT INTO image_cache_purge (sha256, state, attempts, next_attempt)
-          SELECT sha256, 'pending', 0, 0 FROM blobs
-          WHERE sha256 IN (${
-                ordered.map(() => "?").join(",")
-              }) AND type LIKE 'image/%'
-          ON CONFLICT(sha256) DO UPDATE SET state='pending', attempts=0,
-            next_attempt=0, last_error='', completed_at=NULL, generation=generation+1`,
-            args: ordered,
-          }]
-          : []),
-      ],
+      ordered.flatMap((hash) => [
+        {
+          sql:
+            "INSERT INTO blob_quarantine_audit(sha256, action, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)",
+          args: [hash, active ? "quarantine" : "restore", actor, reason, now],
+        },
+        {
+          sql:
+            "INSERT INTO blob_quarantine(sha256, active, updated_at, updated_by, reason) VALUES (?, ?, ?, ?, ?) ON CONFLICT(sha256) DO UPDATE SET active=excluded.active, updated_at=excluded.updated_at, updated_by=excluded.updated_by, reason=excluded.reason",
+          args: [hash, active ? 1 : 0, now, actor, reason],
+        },
+      ]),
       "write",
     );
   }

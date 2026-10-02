@@ -112,7 +112,6 @@ Deno.test("event extraction keeps only this server and classifies each imeta", (
     [
       {
         sha256: encryptedHash,
-        sourceUrls: [`https://blossom.example/${encryptedHash}.bin`],
         encrypted: true,
         name: undefined,
         role: undefined,
@@ -121,7 +120,6 @@ Deno.test("event extraction keeps only this server and classifies each imeta", (
       },
       {
         sha256: publicHash,
-        sourceUrls: [`https://blobs.blossom.example/${publicHash}.jpg`],
         encrypted: false,
         name: undefined,
         role: "preview",

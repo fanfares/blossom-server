@@ -1,5 +1,4 @@
 /** @jsxImportSource @hono/hono/jsx */
-import { imageCachePurgeStatus } from "../admin/image-cache-purge.ts";
 import { QuarantinePage } from "../admin/quarantine-page.tsx";
 import {
   isQuarantined,
@@ -257,7 +256,6 @@ export function buildAdminRouter(
         host={host}
         sha256={sha256}
         quarantined={await isQuarantined(db, sha256)}
-        imagePurgeStatus={await imageCachePurgeStatus(db, sha256, config)}
         moderationHistory={(await db.execute({
           sql:
             "SELECT action, actor, reason, created_at FROM blob_quarantine_audit WHERE sha256 = ? ORDER BY id DESC LIMIT 50",

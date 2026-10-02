@@ -619,17 +619,7 @@ const ReportSchema = z.object({
     ),
 });
 
-const ImageCachePurgeSchema = z.object({
-  enabled: z.boolean().default(false),
-  token: z.string().min(1),
-  project: z.string().min(1),
-  teamId: z.string().optional(),
-});
-
 const DashboardSchema = z.object({
-  imageCachePurge: ImageCachePurgeSchema.optional().describe(
-    "Optional Vercel source-image deletion for quarantined Blossom artwork. Use secret interpolation for token.",
-  ),
   enabled: z
     .boolean()
     .default(false)
