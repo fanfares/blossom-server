@@ -22,10 +22,13 @@ import { RelayPool } from "applesauce-relay";
 import { verifyEvent } from "nostr-tools/pure";
 import type { NostrEvent } from "nostr-tools";
 import {
+  catchError,
+  EMPTY,
   filter,
   lastValueFrom,
   take,
-  timeout as rxTimeout,
+  takeUntil,
+  timer,
   toArray,
 } from "rxjs";
 import type { Config, UploadAllowlistConfig } from "../config/schema.ts";
@@ -55,11 +58,9 @@ const MAX_EVENT_FUTURE_DRIFT_SECONDS = 60;
 /**
  * Reads a kind:3 contact list from relays and returns the pubkeys it follows.
  *
- * Only `p` tags are counted, per NIP-02. The newest event wins when relays
- * disagree. An empty result is treated as a failure rather than an empty
- * allowlist, because a successful fetch of a genuinely empty list and a
- * partial/garbled response are indistinguishable here, and the empty reading
- * would lock out every user.
+ * Only `p` tags are counted, per NIP-02. The newest verified event received
+ * within the deadline wins. A signed empty list revokes membership; receiving
+ * no valid event fails closed. Slow relays cannot discard already verified data.
  *
  * @param config Allowlist configuration supplying curator pubkey, relays and timeout.
  * @param pool Relay pool used to issue the request.
@@ -114,7 +115,10 @@ export async function fetchContactListPubkeys(
           }
         }),
         take(MAX_RELAY_EVENTS),
-        rxTimeout(config.timeoutMs),
+        // End the bounded lookup without discarding verified events from healthy
+        // relays when another relay stalls or errors before sending EOSE.
+        takeUntil(timer(config.timeoutMs)),
+        catchError(() => EMPTY),
         toArray(),
       ),
   );

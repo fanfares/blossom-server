@@ -2,6 +2,7 @@ import type { Client } from "@libsql/client";
 
 export interface StoragePurchaseRecord {
   id: string;
+  mintUrl?: string;
   pubkey: string;
   units: number;
   quotaBytes: number;
@@ -63,6 +64,7 @@ function rowToPurchase(
     alignedExpiresAt: row[14] === null ? null : Number(row[14]),
     baseAmountSats: Number(row[15] ?? row[5]),
     alignmentAmountSats: Number(row[16] ?? 0),
+    mintUrl: row[17] == null ? undefined : String(row[17]),
   };
 }
 
@@ -81,7 +83,8 @@ const PURCHASE_SELECT_COLUMNS = `${PURCHASE_COLUMNS},
   COALESCE((SELECT a.base_amount_sats FROM storage_purchase_alignments a
             WHERE a.purchase_id = storage_purchases.id), amount_sats),
   COALESCE((SELECT a.alignment_amount_sats FROM storage_purchase_alignments a
-            WHERE a.purchase_id = storage_purchases.id), 0)
+            WHERE a.purchase_id = storage_purchases.id), 0),
+  (SELECT m.mint_url FROM storage_purchase_mints m WHERE m.purchase_id = storage_purchases.id)
 `;
 
 function storagePurchaseInsert(purchase: StoragePurchaseRecord) {
@@ -107,11 +110,24 @@ function storagePurchaseInsert(purchase: StoragePurchaseRecord) {
   };
 }
 
+function mintSnapshotStatements(purchase: StoragePurchaseRecord) {
+  return purchase.mintUrl
+    ? [{
+      sql:
+        "INSERT INTO storage_purchase_mints (purchase_id, mint_url) VALUES (?, ?)",
+      args: [purchase.id, purchase.mintUrl],
+    }]
+    : [];
+}
+
 export async function insertStoragePurchase(
   db: Client,
   purchase: StoragePurchaseRecord,
 ): Promise<void> {
-  await db.execute(storagePurchaseInsert(purchase));
+  await db.batch([
+    storagePurchaseInsert(purchase),
+    ...mintSnapshotStatements(purchase),
+  ], "write");
 }
 
 export async function insertStorageExtensionPurchase(
@@ -122,6 +138,7 @@ export async function insertStorageExtensionPurchase(
   await db.batch(
     [
       storagePurchaseInsert(purchase),
+      ...mintSnapshotStatements(purchase),
       {
         sql: "INSERT INTO storage_purchase_extensions (purchase_id) VALUES (?)",
         args: [purchase.id],
@@ -145,6 +162,7 @@ export async function insertStorageAlignedPurchase(
   await db.batch(
     [
       storagePurchaseInsert(purchase),
+      ...mintSnapshotStatements(purchase),
       {
         sql: `INSERT INTO storage_purchase_alignments
               (purchase_id, target_expires_at, base_amount_sats, alignment_amount_sats)
@@ -365,12 +383,27 @@ export async function listPendingStoragePurchases(
   const rs = await db.execute({
     sql: `SELECT ${PURCHASE_SELECT_COLUMNS}
           FROM storage_purchases
+          LEFT JOIN storage_purchase_reconciliation r ON r.purchase_id = storage_purchases.id
           WHERE state = 'pending'
             AND (? IS NULL OR pubkey = ?)
-          ORDER BY created_at ASC LIMIT ?`,
+          ORDER BY COALESCE(r.last_checked_at, 0) ASC, created_at ASC, id ASC LIMIT ?`,
     args: [pubkey ?? null, pubkey ?? null, limit],
   });
   return rs.rows.map(rowToPurchase);
+}
+
+/** Persist attempts before contacting a mint so failed checks do not monopolize the sweep. */
+export async function recordStorageReconciliationAttempt(
+  db: Client,
+  purchaseId: string,
+  now: number,
+): Promise<void> {
+  await db.execute({
+    sql:
+      `INSERT INTO storage_purchase_reconciliation (purchase_id, last_checked_at) VALUES (?, ?)
+      ON CONFLICT(purchase_id) DO UPDATE SET last_checked_at = excluded.last_checked_at`,
+    args: [purchaseId, now],
+  });
 }
 
 export async function creditStoragePurchase(
@@ -529,7 +562,7 @@ export async function getStorageQuotaSummary(
   const rs = await db.execute({
     sql: `SELECT
       COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0),
-      COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0),
+      COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1)), 0),
       COALESCE((SELECT SUM(size_bytes) FROM upload_reservations WHERE pubkey = ? AND expires_at > ?), 0),
       (SELECT MAX(expires_at) FROM storage_grants WHERE pubkey = ? AND expires_at > ?)`,
     args: [pubkey, now, pubkey, pubkey, now, pubkey, now],
@@ -588,7 +621,7 @@ export async function reserveStorageQuota(
           SELECT ?, ?, ?, ?
           WHERE ? <=
             COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0)
-            - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0)
+            - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1)), 0)
             - COALESCE((SELECT SUM(size_bytes) FROM upload_reservations WHERE pubkey = ? AND expires_at > ?), 0)`,
     args: [
       input.id,
@@ -626,7 +659,7 @@ export async function renewStorageReservation(
           WHERE id = ? AND pubkey = ?
             AND ? <=
               COALESCE((SELECT SUM(quota_bytes) FROM storage_grants WHERE pubkey = ? AND expires_at > ?), 0)
-              - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ?), 0)
+              - COALESCE((SELECT SUM(b.size) FROM owners o JOIN blobs b ON b.sha256 = o.blob WHERE o.pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1)), 0)
               - COALESCE((SELECT SUM(size_bytes) FROM upload_reservations WHERE pubkey = ? AND id != ? AND expires_at > ?), 0)`,
     args: [
       input.sizeBytes,

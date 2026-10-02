@@ -1,5 +1,5 @@
 # Local paid-storage configuration for the sibling fanfares-next frontend.
-# Run with `deno task dev:local`; no secrets or production storage are used.
+# Run with `deno task dev:local`; local admin credentials come from .env.
 port: 3001
 host: 0.0.0.0
 publicDomain: "localhost:3001"
@@ -86,7 +86,7 @@ dashboard:
   enabled: true
   # Supply this at startup, for example BLOSSOM_ADMIN_PASSWORD=... deno task dev:local.
   password: "${BLOSSOM_ADMIN_PASSWORD}"
-  sessionSecret: "local-only-demo-session-secret-change-me"
+  sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}"
   adminPubkeys:
     - 29e1097c0905ffef6e970a20b1379fd12709f26b9cf93c027930a68cf2707351
   lookupRelays:

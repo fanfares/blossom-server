@@ -61,10 +61,12 @@ jobs:
           case "${{ inputs.target }}" in
             staging)
               echo "config=wrangler.staging.jsonc" >> "$GITHUB_OUTPUT"
-              echo "host=staging.blossom.fanfares.live" >> "$GITHUB_OUTPUT" ;;
+              echo "host=staging.blossom.fanfares.live" >> "$GITHUB_OUTPUT"
+              echo "blob_host=blobs.staging.blossom.fanfares.live" >> "$GITHUB_OUTPUT" ;;
             production)
               echo "config=wrangler.jsonc" >> "$GITHUB_OUTPUT"
-              echo "host=blossom.fanfares.live" >> "$GITHUB_OUTPUT" ;;
+              echo "host=blossom.fanfares.live" >> "$GITHUB_OUTPUT"
+              echo "blob_host=blobs.blossom.fanfares.live" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -102,3 +104,11 @@ jobs:
           acct=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$host/storage/account" || true)
           echo "GET /storage/account -> $acct"
           [ "$acct" = "401" ] || { echo "::error::expected 401 from /storage/account, got $acct"; exit 1; }
+          blob_host="${{ steps.cfg.outputs.blob_host }}"
+          hash=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+          redirect=$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 30 "https://$host/$hash" || true)
+          [ "$redirect" = "https://$blob_host/$hash" ] || { echo "::error::blob redirect went to $redirect"; exit 1; }
+          blob_status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$blob_host/$hash" || true)
+          [ "$blob_status" = "404" ] || { echo "::error::blob hostname returned $blob_status"; exit 1; }
+          admin_body=$(curl -s --max-time 30 "https://$blob_host/admin" || true)
+          [ "$admin_body" = "Not found" ] || { echo "::error::blob hostname exposed a non-blob route"; exit 1; }

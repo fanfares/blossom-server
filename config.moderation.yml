@@ -52,8 +52,8 @@ report:
 
 dashboard:
   enabled: true
-  password: "local-admin-only"
-  sessionSecret: "local-moderation-session-secret-2026"
+  password: "${BLOSSOM_ADMIN_PASSWORD}"
+  sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}"
   adminPubkeys:
     - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
     - 29e1097c0905ffef6e970a20b1379fd12709f26b9cf93c027930a68cf2707351

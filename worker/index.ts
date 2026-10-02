@@ -1,4 +1,5 @@
 import { Container } from "@cloudflare/containers";
+import { blobReadResponse, classifyBlobRequest } from "./blob-domain.ts";
 
 const HEX_64_RE = /^[a-f0-9]{64}$/;
 const DEPLOY_PROBE = "cd-check-2026-06-12-b";
@@ -13,6 +14,7 @@ type Env = {
   TURSO_DATABASE_URL?: string;
   TURSO_AUTH_TOKEN?: string;
   BLOSSOM_PUBLIC_DOMAIN?: string;
+  BLOSSOM_BLOB_DOMAIN?: string;
   BLOSSOM_ADMIN_PASSWORD?: string;
   BLOSSOM_ADMIN_SESSION_SECRET?: string;
   BLOSSOM_META_ADMIN_TOKEN?: string;
@@ -535,7 +537,7 @@ async function syncDelete(
 
 export class BlossomAppContainer extends Container {
   defaultPort = 3000;
-  sleepAfter = "10m";
+  sleepAfter = "2h";
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -546,6 +548,7 @@ export class BlossomAppContainer extends Container {
       R2_SECRET_ACCESS_KEY: env.R2_SECRET_ACCESS_KEY,
       R2_BUCKET: env.R2_BUCKET,
       BLOSSOM_PUBLIC_DOMAIN: env.BLOSSOM_PUBLIC_DOMAIN ?? "",
+      BLOSSOM_BLOB_DOMAIN: env.BLOSSOM_BLOB_DOMAIN ?? "",
       BLOSSOM_ADMIN_PASSWORD: env.BLOSSOM_ADMIN_PASSWORD ?? "",
       BLOSSOM_ADMIN_SESSION_SECRET: env.BLOSSOM_ADMIN_SESSION_SECRET ?? "",
       D1_METADATA_ENABLED: "1",
@@ -570,6 +573,15 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
+    const url = new URL(request.url);
+    const blobDomain = env.BLOSSOM_BLOB_DOMAIN ?? "";
+    const publicResponse = blobReadResponse(request, blobDomain);
+    if (publicResponse) return publicResponse;
+    const blobAction = classifyBlobRequest(url, request.method, blobDomain);
+    if (blobAction === "reject") {
+      return new Response("Not found", { status: 404 });
+    }
+
     const metaResponse = await handleMetadataApi(request, env);
     if (metaResponse) return metaResponse;
 
@@ -577,8 +589,20 @@ export default {
     const container = env.BLOSSOM_APP.getByName(
       env.BLOSSOM_CONTAINER_INSTANCE ?? "primary",
     );
-    await container.start();
-    const response = await container.fetch(request);
+    // Container.fetch() starts a sleeping instance automatically. Calling
+    // start() for every request adds a lifecycle round trip even while the
+    // instance is already serving traffic.
+    // Never pass credentials from the public blob hostname to the app container.
+    const containerRequest = blobAction === "blob"
+      ? new Request(request, {
+        headers: new Headers(request.headers),
+      })
+      : request;
+    if (blobAction === "blob") {
+      containerRequest.headers.delete("cookie");
+      containerRequest.headers.delete("authorization");
+    }
+    const response = await container.fetch(containerRequest);
 
     ctx.waitUntil(
       syncFromUploadResponse(request, response, env).catch(() => {}),
@@ -588,6 +612,11 @@ export default {
     );
     ctx.waitUntil(syncDelete(request, response, env).catch(() => {}));
 
+    if (blobAction === "blob" && response.headers.has("set-cookie")) {
+      const headers = new Headers(response.headers);
+      headers.delete("set-cookie");
+      return new Response(response.body, { status: response.status, headers });
+    }
     return response;
   },
 };

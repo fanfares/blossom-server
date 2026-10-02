@@ -1,3 +1,4 @@
+/** @jsxImportSource @hono/hono/jsx */
 import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import {
@@ -41,7 +42,7 @@ export const ReportDetailPage: FC<ReportDetailPageProps> = async (
           <code class="font-mono text-cyan-200/75">#{reportId}</code> exists.
         </p>
         <a
-          href="/admin/reports"
+          href="/admin/blob-reports"
           class="mt-4 inline-block text-sm text-gray-500 hover:text-gray-300"
         >
           ← Back to Reports
@@ -56,7 +57,7 @@ export const ReportDetailPage: FC<ReportDetailPageProps> = async (
     <AdminLayout title={`Report #${report.id}`} section="reports">
       <div class="mb-4">
         <a
-          href="/admin/reports"
+          href="/admin/blob-reports"
           class="text-sm text-gray-500 hover:text-gray-300"
         >
           ← Back to Reports

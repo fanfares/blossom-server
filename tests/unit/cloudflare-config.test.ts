@@ -27,6 +27,26 @@ const CLOUDFLARE_TEST_ENV = {
 
 const STAGING_PUBLIC_DOMAIN = "staging.blossom.fanfares.live";
 
+Deno.test("Cloudflare deployments stay single-instance until shared mutation locks exist", async () => {
+  for (const path of ["wrangler.jsonc", "wrangler.staging.jsonc"]) {
+    const source = await Deno.readTextFile(path);
+    const limits = [...source.matchAll(/"max_instances"\s*:\s*(\d+)/g)].map((
+      match,
+    ) => Number(match[1]));
+    assertEquals(limits, [1], `${path} must keep one container instance`);
+  }
+});
+
+Deno.test("Cloudflare container stays warm across an admin session", async () => {
+  const source = await Deno.readTextFile("worker/index.ts");
+  assertEquals(source.includes('sleepAfter = "2h"'), true);
+  assertEquals(source.includes("await container.start()"), false);
+  assertEquals(
+    source.includes("await container.fetch(containerRequest)"),
+    true,
+  );
+});
+
 /** Loads the committed Cloudflare config with non-secret test values and restores the process environment afterward. */
 async function loadTestCloudflareConfig() {
   const previous = new Map<string, string | undefined>();
@@ -49,6 +69,7 @@ async function loadTestStagingConfig() {
   const environment = {
     ...CLOUDFLARE_TEST_ENV,
     BLOSSOM_PUBLIC_DOMAIN: STAGING_PUBLIC_DOMAIN,
+    BLOSSOM_BLOB_DOMAIN: "blobs.staging.blossom.fanfares.live",
   };
   const previous = new Map<string, string | undefined>();
   for (const [name, value] of Object.entries(environment)) {
@@ -73,6 +94,7 @@ Deno.test("Cloudflare deployment config keeps destructive and storage routes aut
   assertEquals(config.mirror.requireAuth, true);
   assertEquals(config.delete.requireAuth, true);
   assertEquals(config.publicDomain, "blossom.fanfares.live");
+  assertEquals(config.blobDomain, "blobs.blossom.fanfares.live");
   assertEquals(config.database.url, CLOUDFLARE_TEST_ENV.TURSO_DATABASE_URL);
   assertEquals(
     config.database.authToken,
@@ -81,7 +103,7 @@ Deno.test("Cloudflare deployment config keeps destructive and storage routes aut
   assertEquals(config.paidStorage.enabled, false);
   assertEquals(config.paidStorage.treasury.enabled, false);
   assertEquals(config.dashboard.enabled, true);
-  assertEquals(config.dashboard.adminPubkeys.length, 1);
+  assertEquals(config.dashboard.adminPubkeys.length, 3);
 });
 
 Deno.test("Cloudflare deployment config restricts writes to the pubkey allowlist", async () => {
@@ -101,6 +123,7 @@ Deno.test("Staging Cloudflare config forwards paid storage to its dedicated test
   const config = await loadTestStagingConfig();
 
   assertEquals(config.publicDomain, STAGING_PUBLIC_DOMAIN);
+  assertEquals(config.blobDomain, "blobs.staging.blossom.fanfares.live");
   assertEquals(config.paidStorage.enabled, true);
   assertEquals(config.paidStorage.priceSats, 5);
   assertEquals(config.paidStorage.treasury.enabled, true);

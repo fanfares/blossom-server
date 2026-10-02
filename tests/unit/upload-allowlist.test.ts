@@ -16,7 +16,7 @@
 
 import { assertEquals, assertRejects } from "@std/assert";
 import { HTTPException } from "@hono/hono/http-exception";
-import { of } from "rxjs";
+import { concat, NEVER, of, throwError } from "rxjs";
 import {
   finalizeEvent,
   generateSecretKey,
@@ -302,4 +302,36 @@ Deno.test("contact-list parsing accepts an authenticated empty revocation", asyn
   );
 
   assertEquals(result.size, 0);
+});
+
+Deno.test("contact-list lookup retains verified events when another relay stalls or errors", async () => {
+  const event = finalizeEvent({
+    kind: 3,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [["p", ALICE]],
+    content: "",
+  }, curatorSecretKey);
+  for (
+    const remaining of [
+      NEVER,
+      throwError(() => new Error("relay failed")),
+    ]
+  ) {
+    const pool = { request: () => concat(of(event), remaining) };
+    const result = await fetchContactListPubkeys(
+      makeConfig({ listPubkey: CURATOR, timeoutMs: 10 }),
+      pool as unknown as Parameters<typeof fetchContactListPubkeys>[1],
+    );
+    assertEquals([...result], [ALICE]);
+  }
+});
+
+Deno.test("stalled relay lookup without a verified event still fails closed", async () => {
+  const pool = { request: () => NEVER };
+  await assertRejects(() =>
+    fetchContactListPubkeys(
+      makeConfig({ listPubkey: CURATOR, timeoutMs: 10 }),
+      pool as unknown as Parameters<typeof fetchContactListPubkeys>[1],
+    )
+  );
 });

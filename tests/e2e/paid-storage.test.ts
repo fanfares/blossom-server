@@ -107,18 +107,32 @@ Deno.test({
     });
 
     try {
+      const unknownIdentityKey = generateSecretKey();
       const unknownIdentityPurchase = await app.fetch(
         new Request("http://localhost/storage/purchases", {
           method: "POST",
           headers: {
-            Authorization: authorization("storage", generateSecretKey()),
+            Authorization: authorization("storage", unknownIdentityKey),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ storageUnits: 1, durationYears: 1 }),
         }),
       );
-      assertEquals(unknownIdentityPurchase.status, 503);
-      assertEquals(payments.createCalls, 0);
+      assertEquals(unknownIdentityPurchase.status, 201);
+      assertEquals(payments.createCalls, 1);
+
+      // Buying storage must not grant permission to upload during a relay outage.
+      const unknownIdentityUpload = await app.fetch(
+        new Request("http://localhost/upload", {
+          method: "HEAD",
+          headers: {
+            Authorization: authorization("upload", unknownIdentityKey),
+            "X-Content-Length": "5",
+            "X-Content-Type": "text/plain",
+          },
+        }),
+      );
+      assertEquals(unknownIdentityUpload.status, 503);
 
       const blocked = await app.fetch(
         new Request("http://localhost/upload", {

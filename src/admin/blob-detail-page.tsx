@@ -1,8 +1,10 @@
+/** @jsxImportSource @hono/hono/jsx */
 import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
 import { nip19 } from "nostr-tools";
+import { getEventKindLabel } from "./event-index.ts";
 import {
   AdminLayout,
   Badge,
@@ -30,10 +32,17 @@ interface BlobDetailPageProps {
   config: Config;
   host: string;
   sha256: string;
+  quarantined?: boolean;
+  moderationHistory?: {
+    action: string;
+    actor: string;
+    reason: string;
+    createdAt: number;
+  }[];
 }
 
 export const BlobDetailPage: FC<BlobDetailPageProps> = async (
-  { db, config, host, sha256 },
+  { db, config, host, sha256, quarantined = false, moderationHistory = [] },
 ) => {
   const blob = await db.getBlob(sha256);
 
@@ -86,6 +95,31 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
 
       <PageHeader title={`Blob ${truncateHash(sha256)}`} />
 
+      <div class="admin-moderation-actions">
+        <span>
+          {quarantined
+            ? "Quarantined · Public access blocked · Bytes retained"
+            : "Public access enabled"}
+        </span>
+        <a href={`/admin/quarantine?scope=file&id=${sha256}`}>
+          {quarantined ? "Review and restore access" : "Quarantine file"}
+        </a>
+      </div>
+      {moderationHistory.length > 0 && (
+        <details class="mb-5">
+          <summary>Moderation history</summary>
+          <ul>
+            {moderationHistory.map((entry) => (
+              <li class="mt-3 text-sm text-gray-400">
+                <strong>{entry.action}</strong> · {formatDate(entry.createdAt)}
+                {" "}
+                · {truncateHash(entry.actor)}
+                <p>{entry.reason}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Metadata card */}
         <div class="space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
@@ -159,7 +193,7 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
                         {event.id}
                       </a>
                       <div class="mt-1 flex gap-2 text-xs text-gray-500">
-                        <span>kind {event.kind}</span>
+                        <span>{getEventKindLabel(event.kind)}</span>
                         <Badge color={event.encrypted ? "yellow" : "green"}>
                           {event.encrypted ? "encrypted" : "public"}
                         </Badge>
@@ -193,22 +227,29 @@ export const BlobDetailPage: FC<BlobDetailPageProps> = async (
           <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
             Preview
           </h2>
-          {isImage && (
+          {!quarantined && isImage && (
             <img
               src={blobUrl}
               alt={blob.sha256}
               class="max-w-full max-h-96 object-contain rounded border border-gray-800"
             />
           )}
-          {isVideo && (
+          {!quarantined && isVideo && (
             <video
               src={blobUrl}
               controls
               class="max-w-full max-h-96 rounded border border-gray-800"
             />
           )}
-          {isAudio && <audio src={blobUrl} controls class="w-full mt-2" />}
-          {!isImage && !isVideo && !isAudio && (
+          {!quarantined && isAudio && (
+            <audio src={blobUrl} controls class="w-full mt-2" />
+          )}
+          {quarantined && (
+            <p class="text-sm text-gray-400">
+              Preview disabled while quarantined.
+            </p>
+          )}
+          {!quarantined && !isImage && !isVideo && !isAudio && (
             <div class="py-8 text-center">
               <p class="text-gray-500 text-sm mb-3">
                 No preview available for this file type.

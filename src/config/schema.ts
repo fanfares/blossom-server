@@ -9,7 +9,7 @@ export const StorageRuleSchema = z.object({
   expiration: z
     .string()
     .describe(
-      'How long a blob may go unaccessed before being pruned. Human-readable duration: "7 days", "1 month", "24 hours".',
+      'Use "never" for indefinite retention, or a duration without access before pruning. Human-readable duration: "7 days", "1 month", "24 hours".',
     ),
   pubkeys: z
     .array(z.string())
@@ -473,6 +473,22 @@ const ListSchema = z.object({
 });
 
 const PaidStorageSchema = z.object({
+  approvedMintUrls: z.array(
+    z.string().url().refine(
+      (value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === "https:" && !url.username && !url.password &&
+            !url.search && !url.hash;
+        } catch {
+          return false;
+        }
+      },
+      "Approved mints must use HTTPS without credentials, query strings, or fragments.",
+    ),
+  ).max(20).default([]).describe(
+    "Additional operator-vetted Cashu mints selectable in the admin dashboard. The configured cashu.mintUrl is always approved. Vet HTTPS public endpoints and Cashu/Lightning support before adding them.",
+  ),
   enabled: z
     .boolean()
     .default(false)
@@ -529,6 +545,9 @@ const PaidStorageSchema = z.object({
     ),
   cashu: z
     .object({
+      legacyMintUrl: z.string().url().optional().describe(
+        "Original mint for receipts created before mint snapshots. Set explicitly if changing mintUrl during the first upgrade; persisted at initialization and never overwritten.",
+      ),
       mintUrl: z
         .string()
         .url()
@@ -541,6 +560,7 @@ const PaidStorageSchema = z.object({
     .transform((v) =>
       v ??
         z.object({
+          legacyMintUrl: z.string().url().optional(),
           mintUrl: z.string().url().default(
             "https://mint.minibits.cash/Bitcoin",
           ),
@@ -692,6 +712,9 @@ export const ConfigSchema = z
           "Set this explicitly when clients use BUD-11 server tags; the client-controlled Host header is never trusted for auth validation. " +
           "Do NOT include a protocol scheme (https://) — bare hostname only.",
       ),
+    blobDomain: z.string().default("").describe(
+      "Optional bare hostname used as the redirect target for public blob reads. API responses keep using publicDomain for client compatibility.",
+    ),
     // Deprecated: use the "database" section instead.
     // If "database" is absent this value seeds database.path.
     databasePath: z.string().optional().describe(

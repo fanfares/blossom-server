@@ -1,3 +1,4 @@
+/** @jsxImportSource @hono/hono/jsx */
 import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import { REPORT_TYPES } from "../db/reports.ts";
@@ -61,8 +62,8 @@ export const ReportsPage: FC<ReportsPageProps> = async (
   ]);
 
   const baseUrl = typeFilter
-    ? `/admin/reports?type=${encodeURIComponent(typeFilter)}`
-    : "/admin/reports";
+    ? `/admin/blob-reports?type=${encodeURIComponent(typeFilter)}`
+    : "/admin/blob-reports";
 
   return (
     <AdminLayout title="Reports" section="reports">
@@ -76,7 +77,7 @@ export const ReportsPage: FC<ReportsPageProps> = async (
       {/* Type filter tabs */}
       <div class="mb-5 flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
         <a
-          href="/admin/reports"
+          href="/admin/blob-reports"
           class={!typeFilter
             ? "rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-xs font-semibold text-cyan-100"
             : "rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold text-gray-400 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"}
@@ -86,7 +87,7 @@ export const ReportsPage: FC<ReportsPageProps> = async (
         {REPORT_TYPES.map((t) => (
           <a
             key={t}
-            href={`/admin/reports?type=${t}`}
+            href={`/admin/blob-reports?type=${t}`}
             class={typeFilter === t
               ? "rounded-full border border-cyan-400/30 bg-cyan-400/15 px-4 py-2 text-xs font-semibold text-cyan-100"
               : "rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold text-gray-400 transition-colors hover:border-cyan-400/25 hover:text-cyan-100"}

@@ -82,6 +82,16 @@ use port `3000`.
 
 Start Blossom and build its landing-page bundle with one command:
 
+Create a local `.env` (which is ignored by Git) with unique admin credentials:
+
+```sh
+BLOSSOM_ADMIN_PASSWORD=<choose-a-password-of-at-least-12-characters>
+BLOSSOM_ADMIN_SESSION_SECRET=<generate-at-least-32-random-characters>
+```
+
+The same `.env` supplies `deno task dev:moderation`. Use distinct values from
+Cloudflare secrets and do not commit this file.
+
 ```sh
 deno task dev:local
 ```
@@ -119,6 +129,25 @@ Turso rather than the container filesystem. `TURSO_DATABASE_URL` and
 `TURSO_AUTH_TOKEN` must be present in the Worker environment; startup fails
 instead of silently falling back to ephemeral SQLite when either value is
 missing.
+
+Cloudflare deployments use separate custom domains for blob delivery:
+`blobs.staging.blossom.fanfares.live` on staging and
+`blobs.blossom.fanfares.live` in production. Wrangler creates their DNS records
+and certificates when the manual deploy workflow runs. The API domain remains
+the BUD-11 server domain and the origin returned in upload, list, and account
+descriptors, preserving compatibility with clients that validate the selected
+server origin. Blob GET/HEAD requests on that domain redirect to the isolated
+blob domain. Existing and newly published API-domain links therefore remain
+valid. The blob domain accepts only canonical GET/HEAD blob paths and strips
+incoming cookies and authorization before forwarding. Keep both Wrangler configs
+at `max_instances: 1` until shared database locking covers blob ownership and
+quote creation.
+
+Before enabling the dashboard in production, provision independent
+`BLOSSOM_ADMIN_PASSWORD` and `BLOSSOM_ADMIN_SESSION_SECRET` Worker secrets in
+Cloudflare. They are present in staging but were not present in production as of
+the 2026-09-22 deployment inventory. Both must be set before running the manual
+production deploy workflow; configuration loading fails if either is missing.
 
 Pass a custom config path as the first argument:
 
@@ -366,6 +395,14 @@ storage:
       expiration: 1 week
 ```
 
+Use `expiration: "never"` with a matching MIME rule to retain files
+indefinitely. The staging Cloudflare profile explicitly uses `type: "*"`,
+`expiration: "never"`, and `removeWhenNoOwners: false`. Paid grant expiry
+restricts new uploads; it does not delete those retained files. Deliberate user
+deletion remains available. Removing all rules would reject uploads, so keep the
+permanent catch-all rule. The read-only retention configuration remains
+inspectable at `/admin/rules`.
+
 Rules can be scoped to specific Nostr pubkeys (hex) to give certain users
 different retention:
 
@@ -514,7 +551,7 @@ both the response body and an `X-Reason` header.
 ## Admin Dashboard
 
 Enable the server-rendered admin dashboard (Hono JSX, no separate SPA) to manage
-blobs, linked Nostr events, users, rules, and reports:
+blobs, linked Nostr events, users, storage purchases, and reports:
 
 ```yaml
 dashboard:
@@ -534,12 +571,58 @@ The dashboard is available at `http://localhost:3000/admin`. An administrator
 first signs a replay-protected challenge with an allowlisted NIP-07 browser
 extension, then enters the configured password. It provides pages for:
 
-- **Blobs** — browse, search, sort, classify, preview, and force-delete blobs
+- **Blobs** — browse, search, sort, classify, and preview blobs
 - **Events** — inspect a hex/note/nevent/naddr from configured relays and link
   its public or encrypted files for moderation
-- **Users** — list uploaders with Nostr profile metadata lookup
-- **Rules** — view active storage retention rules
-- **Reports** — review and dismiss BUD-09 blob reports
+- **Users** — list uploaders and purchasers with profile lookup, active quota,
+  used/reserved/available bytes, expiry, and a link to purchase history
+- **Payments** — inspect purchases, amounts, capacity, terms, and durable wallet
+  forwarding status. Treasury destination changes require the admin password
+  again and are saved with a signed-in administrator audit trail
+- **Reports** — sync verified NIP-56 kind-1984 reports from configured relays
+  about local uploaders or indexed events; follow event/address/profile links
+  and mark reports reviewed without deleting content. BUD-09 file reports remain
+  available at `/admin/blob-reports`
+
+Wallet destination overrides are stored in the database and survive restarts.
+The configured Lightning address is the fallback until an override is saved. The
+settings form also selects the Cashu mint for new invoices. The configured
+`paidStorage.cashu.mintUrl` is always available; add other vetted HTTPS mints to
+`paidStorage.approvedMintUrls` before offering them in the dashboard. Staging
+currently approves only its existing Minibits mint. An arbitrary URL cannot be
+entered in the dashboard. Every new purchase records its issuing mint atomically
+with its invoice, and changing the active mint snapshots legacy purchases first.
+Invoice verification, Cashu claims, and treasury retries use that purchase's
+original mint across restarts. Switching mints does not transfer existing Cashu
+balances. Removing the active mint from the approved list stops new quotes until
+an administrator chooses another approved mint; existing purchases remain
+recoverable using their pinned mint.
+
+Startup now pins legacy invoices before serving requests. The original mint is
+persisted separately so later configuration changes cannot redirect their
+settlement or treasury recovery. When changing `cashu.mintUrl` during the first
+upgrade, set `paidStorage.cashu.legacyMintUrl` to the old issuing mint
+explicitly; otherwise the current configured mint is used for legacy receipts.
+The server cannot infer a historical mint that was never recorded. New invoices
+always retain their own mint snapshot.
+
+Background settlement prioritizes invoices checked least recently. Attempt
+timestamps survive restarts, so persistently failing old invoices cannot
+monopolize every batch. Failures remain pending for recovery and storage credit
+stays idempotent.
+
+Only future settlement operations pick up a changed destination: an existing
+outbox transfer always retains its original destination. Forwarding status is
+separate from invoice payment and storage crediting. Private Cashu proofs and
+payment preimages are never included in dashboard queries.
+
+Report pages use the persisted index; relay sync is explicit and bounded to
+three seconds per parallel query, 1,000 uploaders/indexed events, and 1,000
+reports per import. A limit warning indicates partial coverage. Available relay
+history determines what can be imported. Repeated sync preserves reviewed
+status. The dashboard displays allegations from all imported signers; the
+client's curator trust gate decides which reports affect public content
+warnings.
 
 ### Test uploads and the admin dashboard locally
 
@@ -550,9 +633,9 @@ own SQLite database and blob directory:
 deno task dev:moderation
 ```
 
-Then open `http://localhost:3001/admin` and use the local-only password
-`local-admin-only` after signing with an allowlisted Nostr browser extension.
-All uploads and moderation changes stay under `data/moderation-test/`; no remote
+Then open `http://localhost:3001/admin` and use the local-only password from
+your `.env` after signing with an allowlisted Nostr browser extension. All
+uploads and moderation changes stay under `data/moderation-test/`; no remote
 database or Cloudflare storage is changed.
 
 ## Development

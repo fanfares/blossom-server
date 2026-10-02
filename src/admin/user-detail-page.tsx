@@ -1,3 +1,5 @@
+/** @jsxImportSource @hono/hono/jsx */
+import type { StorageQuotaSummary } from "../db/paid-storage.ts";
 import type { FC } from "@hono/hono/jsx";
 import type { IDbHandle } from "../db/handle.ts";
 import type { BlobRecord } from "../db/handle.ts";
@@ -6,6 +8,8 @@ import type { Config } from "../config/schema.ts";
 import { nip19 } from "nostr-tools";
 import { fetchUserProfile } from "./nostr-profile.ts";
 import { fetchOwnerEvents, groupBlobsByEvents } from "./event-index.ts";
+import { EventCard } from "./event-card.tsx";
+import { getFanfaresProfileUrl } from "./fanfares-links.ts";
 import {
   AdminLayout,
   Badge,
@@ -24,10 +28,22 @@ interface UserDetailPageProps {
   db: IDbHandle;
   config: Config;
   pubkey: string;
+  quota?: StorageQuotaSummary;
+  purchasedBytes?: number;
+  paidSats?: number;
+  quarantinedHashes?: string[];
 }
 
 export const UserDetailPage: FC<UserDetailPageProps> = async (
-  { db, config, pubkey },
+  {
+    db,
+    config,
+    pubkey,
+    quota,
+    purchasedBytes = 0,
+    paidSats = 0,
+    quarantinedHashes = [],
+  },
 ) => {
   // Validate pubkey is a 64-char hex string
   if (!/^[0-9a-f]{64}$/i.test(pubkey)) {
@@ -51,34 +67,15 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
   }
 
   // Fetch the complete moderation inventory, event snapshot, and profile in parallel.
-  // fetchUserProfile has its own 4 s timeout — a slow relay never blocks
-  // the page render beyond that, and null is the graceful-degradation value.
+  // Relay enrichment is best effort so external relays cannot stall navigation.
   const [blobs, profile, events] = await Promise.all([
     db.listBlobsByPubkeyAdmin(pubkey, { limit: 10_000 }),
-    fetchUserProfile(pubkey),
-    fetchOwnerEvents([pubkey], config.dashboard.lookupRelays),
+    fetchUserProfile(pubkey, 750),
+    fetchOwnerEvents([pubkey], config.dashboard.lookupRelays, {
+      maxWait: 750,
+    }),
   ]);
   const total = blobs.length;
-
-  if (total === 0) {
-    return (
-      <AdminLayout title="User not found" section="users">
-        <div class="mb-4">
-          <a
-            href="/admin/users"
-            class="text-sm text-gray-500 hover:text-gray-300"
-          >
-            ← Back to Users
-          </a>
-        </div>
-        <PageHeader title="User not found" />
-        <p class="text-gray-400 text-sm">
-          No blobs found for pubkey{" "}
-          <code class="break-all font-mono text-cyan-200/75">{pubkey}</code>
-        </p>
-      </AdminLayout>
-    );
-  }
 
   const totalSize = blobs.reduce(
     (acc: number, b: BlobRecord) => acc + b.size,
@@ -87,9 +84,14 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
   const adminBlobs: AdminBlobRecord[] = blobs.map((blob) => ({
     ...blob,
     owners: [pubkey],
+    quarantined: quarantinedHashes.includes(blob.sha256),
     events: [],
   }));
-  const grouped = groupBlobsByEvents(adminBlobs, events, config.publicDomain);
+  const grouped = groupBlobsByEvents(
+    adminBlobs,
+    events,
+    [config.publicDomain, config.blobDomain].filter(Boolean),
+  );
 
   let npub = "";
   try {
@@ -100,6 +102,8 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
 
   // Resolved display name — prefer display_name, fall back to name.
   const displayName = profile?.display_name || profile?.name || null;
+  const publicDomain = config.publicDomain || "blossom.fanfares.live";
+  const blobBaseUrl = `https://${publicDomain.replace(/\/$/, "")}`;
 
   return (
     <AdminLayout title={`User ${truncateHash(pubkey)}`} section="users">
@@ -112,6 +116,11 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
         </a>
       </div>
 
+      <div class="admin-moderation-actions">
+        <a href={`/admin/quarantine?scope=user&id=${pubkey}`}>
+          Review and quarantine this user’s files
+        </a>
+      </div>
       <PageHeader
         title={displayName ?? `User ${truncateHash(pubkey)}`}
         subtitle="Creator storage and publishing overview"
@@ -146,6 +155,54 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
           <p class="mt-1 text-xs text-gray-500">Across all files</p>
         </div>
       </div>
+
+      <section class="admin-finance-settings">
+        <h2>Storage balance</h2>
+        {config.paidStorage.enabled && quota
+          ? (
+            <>
+              <div class="admin-metrics">
+                <div>
+                  <span>Available for uploads</span>
+                  <strong>{formatBytes(quota.availableBytes)}</strong>
+                </div>
+                <div>
+                  <span>Active purchased quota</span>
+                  <strong>{formatBytes(quota.quotaBytes)}</strong>
+                </div>
+                <div>
+                  <span>Used / reserved</span>
+                  <strong>
+                    {formatBytes(quota.usedBytes)} /{" "}
+                    {formatBytes(quota.reservedBytes)}
+                  </strong>
+                </div>
+              </div>
+              <p>
+                Latest active grant expiry: {quota.expiresAt
+                  ? formatDate(quota.expiresAt)
+                  : "No active grants"}. Individual purchases can expire
+                earlier.
+              </p>
+              <p>
+                Lifetime new capacity purchased: {formatBytes(purchasedBytes)} ·
+                {" "}
+                {paidSats.toLocaleString()}{" "}
+                sats paid. Payments include renewals, which extend existing
+                capacity.
+              </p>
+            </>
+          )
+          : (
+            <p>
+              Paid storage is disabled. Upload access follows the server
+              allowlist.
+            </p>
+          )}
+        <a href={`/admin/payments?pubkey=${pubkey}`}>
+          View this user’s purchases and wallet forwarding →
+        </a>
+      </section>
 
       {/* Identity card */}
       <div class="mb-6 space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-[0_20px_70px_rgba(0,0,0,0.25)] backdrop-blur-sm">
@@ -209,12 +266,12 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
             <dt class="text-xs text-gray-500 mb-0.5">Nostr profile</dt>
             <dd>
               <a
-                href={`https://njump.me/${npub || pubkey}`}
+                href={getFanfaresProfileUrl(pubkey, publicDomain)}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-xs text-cyan-200/75 transition-colors hover:text-cyan-100"
               >
-                View on njump.me ↗
+                View on Fanfares ↗
               </a>
             </dd>
           </div>
@@ -230,58 +287,12 @@ export const UserDetailPage: FC<UserDetailPageProps> = async (
             </p>
           </div>
           {grouped.groups.map((group) => (
-            <article class="rounded-2xl border border-cyan-400/20 bg-white/[0.04] p-5">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 class="font-semibold text-cyan-50">{group.title}</h3>
-                  <p class="mt-1 text-sm text-gray-400">
-                    {group.blobs.length}{" "}
-                    file{group.blobs.length === 1 ? "" : "s"} ·{" "}
-                    {formatBytes(group.totalSize)}
-                    {group.encryptedCount
-                      ? ` · ${group.encryptedCount} encrypted`
-                      : ""} · {formatDate(group.event.created_at)}
-                  </p>
-                </div>
-                <a
-                  href={`https://njump.me/${
-                    nip19.neventEncode({
-                      id: group.event.id,
-                      author: group.event.pubkey,
-                    })
-                  }`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-cyan-200/80 hover:text-cyan-100"
-                >
-                  View event ↗
-                </a>
-              </div>
-              <details class="mt-4 border-t border-white/10 pt-3">
-                <summary class="cursor-pointer text-sm text-gray-400 hover:text-white">
-                  File details
-                </summary>
-                <div class="mt-3 space-y-2">
-                  {group.blobs.map(({ blob, reference }) => (
-                    <div class="flex flex-wrap items-center gap-2 text-sm">
-                      <a
-                        href={`/admin/blobs/${blob.sha256}`}
-                        class="text-cyan-200/75 hover:text-cyan-100"
-                      >
-                        {reference.name || reference.role ||
-                          truncateHash(blob.sha256)}
-                      </a>
-                      <Badge color={reference.encrypted ? "yellow" : "green"}>
-                        {reference.encrypted ? "encrypted" : "public"}
-                      </Badge>
-                      <span class="text-gray-500">
-                        {formatBytes(blob.size)} · {blob.type ?? "unknown"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            </article>
+            <EventCard
+              group={group}
+              profile={profile ?? undefined}
+              publicDomain={publicDomain}
+              blobBaseUrl={blobBaseUrl}
+            />
           ))}
         </section>
       )}

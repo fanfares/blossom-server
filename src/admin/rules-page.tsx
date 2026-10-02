@@ -1,3 +1,4 @@
+/** @jsxImportSource @hono/hono/jsx */
 import type { FC } from "@hono/hono/jsx";
 import type { Config } from "../config/schema.ts";
 import {
@@ -31,7 +32,7 @@ export const RulesPage: FC<RulesPageProps> = ({ config }) => {
   const rules = config.storage.rules;
 
   return (
-    <AdminLayout title="Rules" section="rules">
+    <AdminLayout title="Rules" section="payments">
       <PageHeader
         title="Storage Rules"
         subtitle={`${rules.length} rule${
@@ -48,7 +49,7 @@ export const RulesPage: FC<RulesPageProps> = ({ config }) => {
 
       {rules.length === 0
         ? (
-          <EmptyState message="No storage rules configured. All uploads are accepted by default." />
+          <EmptyState message="No storage rules configured. Uploads are rejected because no MIME rule grants access." />
         )
         : (
           <Table>

@@ -745,3 +745,43 @@ Deno.test("paid storage caps open invoices per pubkey and purges long-expired ro
     await Deno.remove(tmpDir, { recursive: true });
   }
 });
+
+Deno.test("concurrent checkouts share a quote and cannot exceed the open invoice cap", async () => {
+  const tmpDir = await Deno.makeTempDir({
+    prefix: "blossom_concurrent_purchase_",
+  });
+  const db = await initDb({ path: join(tmpDir, "test.db") });
+  try {
+    const config = ConfigSchema.parse({
+      mirror: { enabled: false },
+      paidStorage: { enabled: true, quotaBytesPerUnit: 1000, priceSats: 20 },
+    });
+    const payments = new FakePayments();
+    const service = new PaidStorageService(db, config.paidStorage, payments);
+    const pubkey = "d".repeat(64);
+    const same = await Promise.all(
+      Array.from({ length: 8 }, () => service.getOrCreatePurchase(pubkey, 1)),
+    );
+    assertEquals(new Set(same.map((purchase) => purchase.id)).size, 1);
+    assertEquals(payments.createCalls, 1);
+
+    const varied = await Promise.allSettled(
+      Array.from(
+        { length: 12 },
+        (_, index) => service.getOrCreatePurchase(pubkey, index + 2),
+      ),
+    );
+    assertEquals(
+      varied.filter((result) => result.status === "fulfilled").length,
+      9,
+    );
+    assertEquals(
+      varied.filter((result) => result.status === "rejected").length,
+      3,
+    );
+    assertEquals(payments.createCalls, 10);
+  } finally {
+    db.close();
+    await Deno.remove(tmpDir, { recursive: true });
+  }
+});

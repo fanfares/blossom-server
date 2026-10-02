@@ -1,3 +1,10 @@
+import {
+  approvedMintUrls,
+  getActiveMint,
+  getPurchaseMint,
+  initializeStorageMints,
+} from "../db/storage-mints.ts";
+import { getTreasuryDestination } from "../db/admin-payments.ts";
 import type { Client } from "@libsql/client";
 import { ulid } from "@std/ulid";
 import type { PaidStorageConfig } from "../config/schema.ts";
@@ -20,6 +27,7 @@ import {
   listStorageAlignmentTargets,
   listStoragePurchases,
   purgeExpiredStoragePurchases,
+  recordStorageReconciliationAttempt,
   type StorageAlignmentTargetRecord,
   type StorageGrantRecord,
   type StoragePurchaseRecord,
@@ -86,18 +94,80 @@ const STORAGE_PURCHASE_RETENTION_SECONDS = 90 * 24 * 60 * 60;
 
 /** Coordinates Cashu Lightning quotes with durable annual quota grants. */
 export class PaidStorageService {
-  private readonly payments: LightningQuoteProvider;
-  private readonly treasury: TreasuryForwarder;
+  private readonly payments?: LightningQuoteProvider;
+  private readonly paymentProviders = new Map<string, LightningQuoteProvider>();
+  private readonly treasury?: TreasuryForwarder;
+  private readonly treasuryProviders = new Map<string, TreasuryForwarder>();
+  private readonly purchaseLocks = new Map<string, Promise<void>>();
+  private initialization?: Promise<void>;
 
   constructor(
     private readonly db: Client,
     private readonly config: PaidStorageConfig,
     payments?: LightningQuoteProvider,
     treasury?: TreasuryForwarder,
+    private readonly factories?: {
+      payments: (mintUrl: string) => LightningQuoteProvider;
+      treasury: (mintUrl: string) => TreasuryForwarder;
+    },
   ) {
-    this.payments = payments ?? new CashuPaymentProvider(config.cashu.mintUrl);
-    this.treasury = treasury ??
-      new CashuTreasuryForwarder(config.cashu.mintUrl);
+    this.payments = payments;
+    this.treasury = treasury;
+  }
+
+  /** Also called lazily by API/test consumers; startup awaits this before serving. */
+  initialize(): Promise<void> {
+    return this.initialization ??= initializeStorageMints(
+      this.db,
+      this.config.cashu.legacyMintUrl ?? this.config.cashu.mintUrl,
+    ).catch((error) => {
+      this.initialization = undefined;
+      throw error;
+    });
+  }
+
+  private async activeMint(): Promise<string> {
+    await this.initialize();
+    const mint = await getActiveMint(this.db, this.config.cashu.mintUrl);
+    if (
+      !approvedMintUrls(this.config.cashu.mintUrl, this.config.approvedMintUrls)
+        .includes(mint)
+    ) {
+      throw new Error(
+        "Active mint is no longer approved in server configuration.",
+      );
+    }
+    return mint;
+  }
+
+  private paymentsForMint(mintUrl: string): LightningQuoteProvider {
+    if (this.payments) return this.payments;
+    let provider = this.paymentProviders.get(mintUrl);
+    if (!provider) {
+      provider = this.factories?.payments(mintUrl) ??
+        new CashuPaymentProvider(mintUrl);
+      this.paymentProviders.set(mintUrl, provider);
+    }
+    return provider;
+  }
+
+  private async treasuryForPurchase(
+    purchaseId: string,
+  ): Promise<TreasuryForwarder> {
+    await this.initialize();
+    if (this.treasury) return this.treasury;
+    const mintUrl = await getPurchaseMint(
+      this.db,
+      purchaseId,
+      this.config.cashu.mintUrl,
+    );
+    let provider = this.treasuryProviders.get(mintUrl);
+    if (!provider) {
+      provider = this.factories?.treasury(mintUrl) ??
+        new CashuTreasuryForwarder(mintUrl);
+      this.treasuryProviders.set(mintUrl, provider);
+    }
+    return provider;
   }
 
   get enabled(): boolean {
@@ -128,6 +198,25 @@ export class PaidStorageService {
     storageUnits: number,
     durationYears = 1,
     alignExpiry = false,
+  ): Promise<StoragePurchaseRecord> {
+    await this.initialize();
+    return await this.withPurchaseLock(
+      pubkey,
+      () =>
+        this.getOrCreatePurchaseUnlocked(
+          pubkey,
+          storageUnits,
+          durationYears,
+          alignExpiry,
+        ),
+    );
+  }
+
+  private async getOrCreatePurchaseUnlocked(
+    pubkey: string,
+    storageUnits: number,
+    durationYears: number,
+    alignExpiry: boolean,
   ): Promise<StoragePurchaseRecord> {
     if (!this.enabled) throw new Error("Paid storage is disabled");
     const now = this.now();
@@ -179,7 +268,8 @@ export class PaidStorageService {
     }
 
     await this.assertOpenPurchaseCapacity(pubkey, now);
-    const quote = await this.payments.createQuote(
+    const mintUrl = await this.activeMint();
+    const quote = await this.paymentsForMint(mintUrl).createQuote(
       amountSats,
       "Fanfares Blossom: " + storageUnits + " storage unit" +
         (storageUnits === 1 ? "" : "s") + " for " + durationYears +
@@ -188,6 +278,7 @@ export class PaidStorageService {
     this.assertQuoteTerms(quote, amountSats);
     const purchase: StoragePurchaseRecord = {
       id: ulid(),
+      mintUrl,
       pubkey,
       units: storageUnits,
       quotaBytes,
@@ -300,6 +391,17 @@ export class PaidStorageService {
     pubkey: string,
     durationYears: number,
   ): Promise<StoragePurchaseRecord> {
+    await this.initialize();
+    return await this.withPurchaseLock(
+      pubkey,
+      () => this.createExtensionPurchaseUnlocked(pubkey, durationYears),
+    );
+  }
+
+  private async createExtensionPurchaseUnlocked(
+    pubkey: string,
+    durationYears: number,
+  ): Promise<StoragePurchaseRecord> {
     if (!this.enabled) throw new Error("Paid storage is disabled");
     if (
       !Number.isInteger(durationYears) || durationYears < 1 ||
@@ -345,7 +447,8 @@ export class PaidStorageService {
     );
     if (existing) return existing;
     await this.assertOpenPurchaseCapacity(pubkey, now);
-    const quote = await this.payments.createQuote(
+    const mintUrl = await this.activeMint();
+    const quote = await this.paymentsForMint(mintUrl).createQuote(
       amountSats,
       "Fanfares Blossom: extend " + storageUnits + " storage unit" +
         (storageUnits === 1 ? "" : "s") + " by " + durationYears +
@@ -354,6 +457,7 @@ export class PaidStorageService {
     this.assertQuoteTerms(quote, amountSats);
     const purchase: StoragePurchaseRecord = {
       id: ulid(),
+      mintUrl,
       pubkey,
       units: storageUnits,
       quotaBytes,
@@ -397,12 +501,20 @@ export class PaidStorageService {
     id: string,
     pubkey: string,
   ): Promise<StoragePurchaseRecord | null> {
+    await this.initialize();
     const purchase = await getStoragePurchase(this.db, id, pubkey);
     if (!purchase || purchase.state !== "pending") return purchase;
 
     let providerStatus;
     try {
-      providerStatus = await this.payments.checkQuote(
+      providerStatus = await this.paymentsForMint(
+        purchase.mintUrl ??
+          await getPurchaseMint(
+            this.db,
+            purchase.id,
+            this.config.cashu.mintUrl,
+          ),
+      ).checkQuote(
         purchase.providerQuoteId,
       );
     } catch (error) {
@@ -422,26 +534,32 @@ export class PaidStorageService {
     }
     if (providerStatus.state === "paid") {
       const now = this.now();
+      const destination = this.config.treasury.enabled
+        ? await getTreasuryDestination(
+          this.db,
+          this.config.treasury.lightningAddress ?? "",
+        )
+        : undefined;
       if (purchase.alignedExpiresAt !== null) {
         await creditStorageAlignedPurchase(
           this.db,
           purchase,
           now,
-          this.treasuryDestination,
+          destination,
         );
       } else if (purchase.purchaseType === "extension") {
         await creditStorageExtensionPurchase(
           this.db,
           purchase,
           now,
-          this.treasuryDestination,
+          destination,
         );
       } else {
         await creditStoragePurchase(
           this.db,
           purchase,
           now,
-          this.treasuryDestination,
+          destination,
         );
       }
       this.forwardTreasuryPurchase(purchase.id).catch((error) => {
@@ -476,11 +594,34 @@ export class PaidStorageService {
     }
   }
 
+  /** Serialize quote creation and insertion for one buyer in this server instance. */
+  private async withPurchaseLock<T>(
+    pubkey: string,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.purchaseLocks.get(pubkey);
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.purchaseLocks.set(pubkey, current);
+    try {
+      await previous;
+      return await action();
+    } finally {
+      if (this.purchaseLocks.get(pubkey) === current) {
+        this.purchaseLocks.delete(pubkey);
+      }
+      release();
+    }
+  }
+
   /** Reconciles a bounded pending-purchase batch without relying on a browser retaining an ID. */
   async processPendingPurchases(
     limit = 100,
     pubkey?: string,
   ): Promise<void> {
+    await this.initialize();
     if (!pubkey) {
       try {
         await purgeExpiredStoragePurchases(
@@ -498,6 +639,11 @@ export class PaidStorageService {
     );
     for (const purchase of purchases) {
       try {
+        await recordStorageReconciliationAttempt(
+          this.db,
+          purchase.id,
+          this.now(),
+        );
         await this.refreshPurchase(purchase.id, purchase.pubkey);
       } catch (error) {
         console.error(
@@ -510,6 +656,7 @@ export class PaidStorageService {
 
   /** Returns the authenticated buyer's durable purchase history for cross-device recovery. */
   async listPurchases(pubkey: string): Promise<StoragePurchaseRecord[]> {
+    await this.initialize();
     const purchases = await listStoragePurchases(this.db, pubkey);
     return purchases.map((purchase) =>
       this.isInvoiceExpired(purchase)
@@ -569,9 +716,10 @@ export class PaidStorageService {
       );
     }
     try {
+      const treasury = await this.treasuryForPurchase(purchaseId);
       let mintPreviewJson = claimed.mintPreviewJson;
       if (!mintPreviewJson) {
-        mintPreviewJson = await this.treasury.prepareClaim(
+        mintPreviewJson = await treasury.prepareClaim(
           claimed.grossAmountSats,
           await this.providerQuoteIdForPurchase(purchaseId),
         );
@@ -582,7 +730,7 @@ export class PaidStorageService {
 
       let proofsJson = claimed.proofsJson;
       if (!proofsJson) {
-        proofsJson = await this.treasury.completeClaim(mintPreviewJson);
+        proofsJson = await treasury.completeClaim(mintPreviewJson);
         await saveTreasuryClaim(this.db, purchaseId, this.now(), {
           proofsJson,
         });
@@ -590,7 +738,7 @@ export class PaidStorageService {
 
       let meltPreviewJson = claimed.meltPreviewJson;
       if (!meltPreviewJson) {
-        const prepared = await this.treasury.preparePayout(
+        const prepared = await treasury.preparePayout(
           proofsJson,
           claimed.destination,
           claimed.grossAmountSats,
@@ -608,7 +756,7 @@ export class PaidStorageService {
 
       let completed;
       try {
-        completed = await this.treasury.completePayout(meltPreviewJson);
+        completed = await treasury.completePayout(meltPreviewJson);
       } catch (error) {
         await this.discardTerminallyFailedMelt(purchaseId, meltPreviewJson);
         throw error;
@@ -654,7 +802,8 @@ export class PaidStorageService {
   ): Promise<void> {
     let terminal = false;
     try {
-      terminal = await this.treasury.isPayoutTerminallyFailed(meltPreviewJson);
+      terminal = await (await this.treasuryForPurchase(purchaseId))
+        .isPayoutTerminallyFailed(meltPreviewJson);
     } catch {
       return;
     }

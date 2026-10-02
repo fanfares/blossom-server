@@ -1,3 +1,4 @@
+import { isQuarantined } from "../db/quarantine.ts";
 /**
  * BUD-01: GET /:sha256[.ext] and HEAD /:sha256[.ext]
  *
@@ -20,6 +21,7 @@ import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import type { Config } from "../config/schema.ts";
 import { mimeToExt } from "../utils/mime.ts";
+import { blobCacheControl, matchesBlobETag } from "../utils/blob-cache.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const ACTIVE_DOCUMENT_TYPES = new Set([
@@ -67,8 +69,11 @@ export function buildBlobsRouter(
   // Match the full segment including optional extension (e.g. abc123...def.jpg)
   app.on(["GET", "HEAD"], "/:filename", async (ctx, next) => {
     const filename = ctx.req.param("filename") ?? "";
-    // Extract 64-char hex hash — the last 64-char hex run in the segment
-    const match = filename.match(/([0-9a-f]{64})/);
+    const rawPath = new URL(ctx.req.raw.url).pathname;
+    if (!/^\/[0-9a-f]{64}(?:\.[A-Za-z0-9]+)?$/.test(rawPath)) return next();
+    // Only canonical blob paths may reach storage. The edge redirects these
+    // paths to the dedicated blob hostname before the container sees them.
+    const match = filename.match(/^([0-9a-f]{64})(?:\.[A-Za-z0-9]+)?$/);
     const hash = match?.[1] ?? "";
     const requestedExt = parseRequestedExt(filename, hash);
 
@@ -83,7 +88,28 @@ export function buildBlobsRouter(
     const _auth = optionalAuth(ctx);
 
     // Lookup metadata — DB is the preferred index.
+    if (await isQuarantined(db, hash)) {
+      ctx.header("Cache-Control", "no-store");
+      return errorResponse(ctx, 404, "Blob not found");
+    }
     const blob = await getBlob(db, hash);
+
+    // Indexed artwork has immutable bytes. Check quarantine first, then validate
+    // from metadata without an R2 HEAD/GET or an image-body transfer on feed reload.
+    const ifNoneMatch = ctx.req.header("if-none-match");
+    if (
+      blob && blobCacheControl(blob.type) !== "no-store" &&
+      matchesBlobETag(ifNoneMatch, hash)
+    ) {
+      touchBlob(db, hash, Math.floor(Date.now() / 1000)).catch((err) =>
+        console.warn("touchBlob failed:", err)
+      );
+      return ctx.body(null, 304, {
+        ETag: `"${hash}"`,
+        "Cache-Control": blobCacheControl(blob.type),
+        "Last-Modified": new Date(blob.uploaded * 1000).toUTCString(),
+      });
+    }
 
     const candidateExts = blob
       ? [mimeToExt(blob.type), requestedExt, ""]
@@ -113,7 +139,7 @@ export function buildBlobsRouter(
       "Content-Type": mimeType,
       "X-Content-Type-Options": "nosniff",
       "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": blobCacheControl(blob?.type),
       ETag: `"${hash}"`,
       "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
     };
@@ -130,19 +156,13 @@ export function buildBlobsRouter(
 
     // Conditional request: If-None-Match (RFC 9110 §13.1.2)
     // The SHA-256 hash is a perfect ETag — content-addressed, immutable, already computed.
-    // Short-circuit before storage I/O: only the DB lookup has occurred at this point.
-    const ifNoneMatch = ctx.req.header("if-none-match");
-    if (ifNoneMatch) {
-      const tags = ifNoneMatch.split(",").map((t) =>
-        t.trim().replace(/^"(.*)"$/, "$1")
-      );
-      if (tags.includes(hash) || tags.includes("*")) {
-        return ctx.body(null, 304, {
-          ETag: headers["ETag"],
-          "Cache-Control": headers["Cache-Control"],
-          "Last-Modified": headers["Last-Modified"],
-        });
-      }
+    // Unindexed blobs still resolve their storage key before validating access.
+    if (matchesBlobETag(ifNoneMatch, hash)) {
+      return ctx.body(null, 304, {
+        ETag: headers["ETag"],
+        "Cache-Control": headers["Cache-Control"],
+        "Last-Modified": headers["Last-Modified"],
+      });
     }
 
     if (ctx.req.method === "HEAD") {

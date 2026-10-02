@@ -3,6 +3,7 @@ port: 3000
 
 # Canonical deployment hostname used for blob URLs and BUD-11 server-tag validation.
 publicDomain: "blossom.fanfares.live"
+blobDomain: "blobs.blossom.fanfares.live"
 
 # Paid grants, reservations, ownership, and treasury state must survive
 # Cloudflare Container replacement. Local SQLite is ephemeral in this runtime.
@@ -85,6 +86,8 @@ dashboard:
   sessionSecret: "${BLOSSOM_ADMIN_SESSION_SECRET}"
   adminPubkeys:
     - d7d8109ee43657ce6056ada4653006bbb641f31e50e85243681c2724507811ec
+    - 8476043bf19e904f59759363b869332072cbe00e446937ed78a6229cc6e5dc6b
+    - db625e7637543ca7d7be65025834db318a0c7b75b0e23d4fb9e39229f5ba6fa7
   lookupRelays:
     - wss://fanfares.nostr1.com
     - wss://relay.primal.net

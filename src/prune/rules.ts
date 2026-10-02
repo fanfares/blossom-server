@@ -36,6 +36,7 @@ const DURATION_UNITS: Record<string, number> = {
  * Throws if the string cannot be parsed.
  */
 export function parseDuration(s: string): number {
+  if (s.trim().toLowerCase() === "never") return Infinity;
   const match = s.trim().match(/^(\d+)\s*(\w+)$/);
   if (!match) throw new Error(`Invalid duration: "${s}"`);
   const count = parseInt(match[1], 10);

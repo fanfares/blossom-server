@@ -66,7 +66,8 @@ export async function insertBlob(
 
 export async function deleteBlob(db: Client, sha256: string): Promise<boolean> {
   const rs = await db.execute({
-    sql: "DELETE FROM blobs WHERE sha256 = ?",
+    sql:
+      "DELETE FROM blobs WHERE sha256 = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = blobs.sha256 AND q.active = 1)",
     args: [sha256],
   });
   return (rs.rowsAffected ?? 0) > 0;
@@ -83,7 +84,8 @@ export async function removeOwner(
   pubkey: string,
 ): Promise<boolean> {
   const rs = await db.execute({
-    sql: "DELETE FROM owners WHERE blob = ? AND pubkey = ?",
+    sql:
+      "DELETE FROM owners WHERE blob = ? AND pubkey = ? AND NOT EXISTS (SELECT 1 FROM blob_quarantine q WHERE q.sha256 = owners.blob AND q.active = 1)",
     args: [sha256, pubkey],
   });
   return (rs.rowsAffected ?? 0) > 0;
@@ -280,6 +282,7 @@ export async function getBlobsForPrune(
 
 /** Blob record enriched with an owners array — used by the admin API. */
 export interface AdminBlobRecord extends BlobRecord {
+  quarantined?: boolean;
   owners: string[];
   events: AdminBlobEvent[];
 }
@@ -327,10 +330,28 @@ export async function listAllBlobs(
     ) OR EXISTS (
       SELECT 1 FROM admin_event_blobs aeq
       JOIN admin_events eq ON eq.event_id = aeq.event_id
-      WHERE aeq.blob = b.sha256 AND (eq.event_id LIKE ? OR eq.pubkey LIKE ?)
+      LEFT JOIN admin_event_search esq ON esq.event_id = eq.event_id
+      LEFT JOIN admin_event_blob_metadata ebmq
+        ON ebmq.event_id = aeq.event_id AND ebmq.blob = aeq.blob
+      WHERE aeq.blob = b.sha256 AND (
+        eq.event_id LIKE ? OR eq.pubkey LIKE ? OR esq.title LIKE ? OR
+        esq.author_name LIKE ? OR esq.author_nip05 LIKE ? OR
+        esq.search_text LIKE ? OR ebmq.name LIKE ?
+      )
     ))`);
     const query = `%${opts.filter.q}%`;
-    args.push(query, query, query, query, query);
+    args.push(
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+    );
   }
   if (opts.filter?.visibility === "encrypted") {
     conditions.push(
@@ -373,7 +394,8 @@ export async function listAllBlobs(
            COALESCE((SELECT GROUP_CONCAT(
              e.event_id || ':' || e.pubkey || ':' || e.kind || ':' || ae.encrypted, ','
            ) FROM admin_event_blobs ae JOIN admin_events e ON e.event_id = ae.event_id
-             WHERE ae.blob = b.sha256), '') AS events
+             WHERE ae.blob = b.sha256), '') AS events,
+           EXISTS(SELECT 1 FROM blob_quarantine q WHERE q.sha256 = b.sha256 AND q.active = 1) AS quarantined
     FROM blobs b
     ${where}
     ORDER BY b.${safeCol} ${safeDir}
@@ -394,6 +416,7 @@ export async function listAllBlobs(
     size: row[1] as number,
     type: row[2] as string | null,
     uploaded: row[3] as number,
+    quarantined: Number(row[6]) === 1,
     owners: row[4] ? (row[4] as string).split(",") : [],
     events: row[5]
       ? (row[5] as string).split(",").map((entry) => {
@@ -424,10 +447,28 @@ export async function countBlobs(
       SELECT 1 FROM owners oq WHERE oq.blob = b.sha256 AND oq.pubkey LIKE ?
     ) OR EXISTS (
       SELECT 1 FROM admin_event_blobs aeq JOIN admin_events eq ON eq.event_id = aeq.event_id
-      WHERE aeq.blob = b.sha256 AND (eq.event_id LIKE ? OR eq.pubkey LIKE ?)
+      LEFT JOIN admin_event_search esq ON esq.event_id = eq.event_id
+      LEFT JOIN admin_event_blob_metadata ebmq
+        ON ebmq.event_id = aeq.event_id AND ebmq.blob = aeq.blob
+      WHERE aeq.blob = b.sha256 AND (
+        eq.event_id LIKE ? OR eq.pubkey LIKE ? OR esq.title LIKE ? OR
+        esq.author_name LIKE ? OR esq.author_nip05 LIKE ? OR
+        esq.search_text LIKE ? OR ebmq.name LIKE ?
+      )
     ))`);
     const query = `%${filter.q}%`;
-    args.push(query, query, query, query, query);
+    args.push(
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+      query,
+    );
   }
   if (filter?.visibility === "encrypted") {
     conditions.push(
@@ -489,8 +530,15 @@ export async function listAllUsers(
   const args: (string | number)[] = [];
 
   if (opts.filter?.q) {
-    conditions.push("o.pubkey LIKE ?");
-    args.push(`%${opts.filter.q}%`);
+    conditions.push(`(o.pubkey LIKE ? OR EXISTS (
+      SELECT 1 FROM admin_events ue
+      JOIN admin_event_search us ON us.event_id = ue.event_id
+      WHERE ue.pubkey = o.pubkey AND (
+        us.author_name LIKE ? OR us.author_nip05 LIKE ? OR us.search_text LIKE ?
+      )
+    ))`);
+    const query = `%${opts.filter.q}%`;
+    args.push(query, query, query, query);
   }
   if (opts.filter?.pubkey) {
     conditions.push("o.pubkey = ?");
@@ -507,7 +555,12 @@ export async function listAllUsers(
 
   let sql = `
     SELECT o.pubkey, GROUP_CONCAT(o.blob, ',') AS blobs
-    FROM owners o
+    FROM (
+      SELECT pubkey, blob FROM owners
+      UNION ALL
+      SELECT DISTINCT p.pubkey, NULL AS blob FROM storage_purchases p
+      WHERE NOT EXISTS (SELECT 1 FROM owners existing WHERE existing.pubkey = p.pubkey)
+    ) o
     ${where}
     GROUP BY o.pubkey
     ORDER BY o.${safeCol} ${safeDir}
@@ -541,11 +594,18 @@ export async function countUsers(
   const args: (string | number)[] = [];
 
   if (filter?.q) {
-    conditions.push("pubkey LIKE ?");
-    args.push(`%${filter.q}%`);
+    conditions.push(`(o.pubkey LIKE ? OR EXISTS (
+      SELECT 1 FROM admin_events ue
+      JOIN admin_event_search us ON us.event_id = ue.event_id
+      WHERE ue.pubkey = o.pubkey AND (
+        us.author_name LIKE ? OR us.author_nip05 LIKE ? OR us.search_text LIKE ?
+      )
+    ))`);
+    const query = `%${filter.q}%`;
+    args.push(query, query, query, query);
   }
   if (filter?.pubkey) {
-    conditions.push("pubkey = ?");
+    conditions.push("o.pubkey = ?");
     args.push(filter.pubkey);
   }
 
@@ -553,7 +613,12 @@ export async function countUsers(
     ? `WHERE ${conditions.join(" AND ")}`
     : "";
   const rs = await db.execute({
-    sql: `SELECT COUNT(DISTINCT pubkey) FROM owners ${where}`,
+    sql: `SELECT COUNT(DISTINCT o.pubkey) FROM (
+      SELECT pubkey, blob FROM owners
+      UNION ALL
+      SELECT DISTINCT p.pubkey, NULL AS blob FROM storage_purchases p
+      WHERE NOT EXISTS (SELECT 1 FROM owners existing WHERE existing.pubkey = p.pubkey)
+    ) o ${where}`,
     args,
   });
   return (rs.rows[0]?.[0] as number) ?? 0;
