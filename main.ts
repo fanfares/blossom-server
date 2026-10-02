@@ -12,6 +12,7 @@
  *   6. Start Deno.serve()
  */
 
+import { processImageCachePurges } from "./src/admin/image-cache-purge.ts";
 import { loadConfig } from "./src/config/loader.ts";
 import { type DbConfig, initDb } from "./src/db/client.ts";
 import { maybeMigrateLegacyDb } from "./src/db/legacy-migration.ts";
@@ -164,6 +165,23 @@ if (config.paidStorage.enabled && config.paidStorage.treasury.enabled) {
   treasuryTimeout = setTimeout(runTreasurySweep, 5_000);
 }
 
+// Provider cleanup is independent of moderation and survives restarts in the DB.
+let imagePurgeTimeout: ReturnType<typeof setTimeout> | undefined;
+let imagePurgeStopped = false;
+if (config.dashboard.imageCachePurge?.enabled) {
+  const runImagePurge = async () => {
+    try {
+      await processImageCachePurges(db, config);
+    } catch {
+      console.error("[image-purge] Sweep failed; durable jobs will retry");
+    }
+    if (!imagePurgeStopped) {
+      imagePurgeTimeout = setTimeout(runImagePurge, 30_000);
+    }
+  };
+  imagePurgeTimeout = setTimeout(runImagePurge, 1000);
+}
+
 // Start prune loop — runs if any storage rules are configured or removeWhenNoOwners is set.
 // Uses recursive setTimeout (not setInterval) so the next run starts only after the
 // current one fully completes, preventing overlapping runs under slow I/O.
@@ -250,6 +268,8 @@ const shutdown = () => {
   if (pruneTimeout !== undefined) clearTimeout(pruneTimeout);
   if (treasuryTimeout !== undefined) clearTimeout(treasuryTimeout);
   if (settlementTimeout !== undefined) clearTimeout(settlementTimeout);
+  imagePurgeStopped = true;
+  if (imagePurgeTimeout !== undefined) clearTimeout(imagePurgeTimeout);
   pool.shutdown();
   server.shutdown();
   db.close();
