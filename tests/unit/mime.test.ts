@@ -9,7 +9,7 @@
  */
 
 import { assertEquals, assertNotEquals } from "@std/assert";
-import { mimeToExt } from "../../src/utils/mime.ts";
+import { isActiveContentMime, mimeToExt } from "../../src/utils/mime.ts";
 import { getBlobUrl } from "../../src/utils/url.ts";
 
 Deno.test("mimeToExt: application/octet-stream maps to bin", () => {
@@ -56,4 +56,46 @@ Deno.test("getBlobUrl: null type yields a .bin URL, not a bare-hash URL", () => 
     getBlobUrl(hash, null, "https://blossom.example"),
     `https://blossom.example/${hash}.bin`,
   );
+});
+
+// ---------------------------------------------------------------------------
+// isActiveContentMime: types a browser would execute as a document
+// ---------------------------------------------------------------------------
+
+Deno.test("isActiveContentMime: HTML, XML, SVG and other +xml types are active", () => {
+  for (
+    const mime of [
+      "text/html",
+      "TEXT/HTML; charset=utf-8",
+      "text/xml",
+      "application/xml",
+      "image/svg+xml",
+      "application/xhtml+xml",
+      "multipart/x-mixed-replace; boundary=x",
+    ]
+  ) {
+    assertEquals(isActiveContentMime(mime), true, mime);
+  }
+});
+
+Deno.test("isActiveContentMime: ordinary media and data types are not active", () => {
+  for (
+    const mime of [
+      null,
+      undefined,
+      "",
+      "application/octet-stream",
+      "image/png",
+      "image/avif",
+      "audio/mp4",
+      "video/mp4",
+      "text/plain",
+      "application/json",
+      "+xml",
+      "/+xml",
+      "image/+xml",
+    ]
+  ) {
+    assertEquals(isActiveContentMime(mime), false, String(mime));
+  }
 });
