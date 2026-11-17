@@ -3,6 +3,7 @@
   "name": "fanfares-blossom-server",
   "main": "worker/index.ts",
   "compatibility_date": "2026-05-24",
+  "workers_dev": false,
   "containers": [
     {
       "class_name": "BlossomAppContainer",
