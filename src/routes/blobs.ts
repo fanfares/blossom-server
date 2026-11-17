@@ -19,7 +19,7 @@ import { optionalAuth } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import type { Config } from "../config/schema.ts";
-import { mimeToExt } from "../utils/mime.ts";
+import { isActiveContentMime, mimeToExt } from "../utils/mime.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -98,9 +98,21 @@ export function buildBlobsRouter(
       "Cache-Control": "public, max-age=31536000, immutable",
       ETag: `"${hash}"`,
       "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
+      // Never let a browser second-guess the stored type (e.g. render bytes
+      // uploaded as text/plain or image/avif as HTML or SVG).
+      "X-Content-Type-Options": "nosniff",
     };
     if (resolvedSize !== null) {
       headers["Content-Length"] = String(resolvedSize);
+    }
+    // Active documents (HTML, XML, SVG, ...) are served as downloads inside a
+    // CSP sandbox, so an uploaded file can never run script as this origin.
+    // <img src> embedding of SVG is unaffected by either header.
+    if (isActiveContentMime(mimeType)) {
+      const safeExt = /^[a-z0-9]{1,10}$/.test(ext) ? `.${ext}` : "";
+      headers["Content-Disposition"] =
+        `attachment; filename="${hash}${safeExt}"`;
+      headers["Content-Security-Policy"] = "sandbox";
     }
 
     // Conditional request: If-None-Match (RFC 9110 §13.1.2)
@@ -112,11 +124,16 @@ export function buildBlobsRouter(
         t.trim().replace(/^"(.*)"$/, "$1")
       );
       if (tags.includes(hash) || tags.includes("*")) {
-        return ctx.body(null, 304, {
+        const notModified: Record<string, string> = {
           ETag: headers["ETag"],
           "Cache-Control": headers["Cache-Control"],
           "Last-Modified": headers["Last-Modified"],
-        });
+          "X-Content-Type-Options": headers["X-Content-Type-Options"],
+        };
+        for (const name of ["Content-Disposition", "Content-Security-Policy"]) {
+          if (headers[name]) notModified[name] = headers[name];
+        }
+        return ctx.body(null, 304, notModified);
       }
     }
 
