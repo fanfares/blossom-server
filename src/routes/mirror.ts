@@ -44,7 +44,7 @@ import { errorResponse } from "../middleware/errors.ts";
 import type { IBlobStorage } from "../storage/interface.ts";
 import { getPool } from "../workers/pool.ts";
 import type { Config } from "../config/schema.ts";
-import { mimeToExt } from "../utils/mime.ts";
+import { mimeToExt, normalizeIncomingMime } from "../utils/mime.ts";
 import { getBaseUrl, getBlobUrl } from "../utils/url.ts";
 import { getFileRule } from "../prune/rules.ts";
 import {
@@ -225,10 +225,11 @@ export function buildMirrorRouter(
 
     // --- 10. Content-Type check / storage rule gate ---
     // BUD-04: use Content-Type from origin; fall back to application/octet-stream.
-    const rawContentType = originResponse.headers.get("content-type") ??
-      "application/octet-stream";
-    const mimeType = rawContentType.split(";")[0].trim() ||
-      "application/octet-stream";
+    // Strictly parsed and lowercased; malformed or multi-valued origin types
+    // are stored as application/octet-stream (same rule as PUT /upload).
+    const mimeType = normalizeIncomingMime(
+      originResponse.headers.get("content-type"),
+    );
 
     debug(
       debugPrefix,

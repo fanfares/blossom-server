@@ -37,7 +37,7 @@ import { errorResponse } from "../middleware/errors.ts";
 import type { IBlobStorage } from "../storage/interface.ts";
 import { getPool, WorkerJobError } from "../workers/pool.ts";
 import type { Config } from "../config/schema.ts";
-import { mimeToExt } from "../utils/mime.ts";
+import { mimeToExt, normalizeIncomingMime } from "../utils/mime.ts";
 import { getBaseUrl, getBlobUrl } from "../utils/url.ts";
 import { getFileRule } from "../prune/rules.ts";
 
@@ -84,8 +84,10 @@ export function buildUploadRouter(
     }
 
     const xSha256 = ctx.req.header("x-sha-256");
-    const xContentType = ctx.req.header("x-content-type") ??
-      "application/octet-stream";
+    // Same normalization as PUT /upload, so preflight and upload agree.
+    const xContentType = normalizeIncomingMime(
+      ctx.req.header("x-content-type"),
+    );
     const xContentLength = ctx.req.header("x-content-length");
 
     if (!xContentLength) {
@@ -209,9 +211,10 @@ export function buildUploadRouter(
     }
 
     // --- 4. MIME type check / storage rule gate ---
-    const contentType = ctx.req.header("content-type") ??
-      "application/octet-stream";
-    const mimeType = contentType.split(";")[0].trim();
+    // Strictly parsed and lowercased. A malformed or multi-valued type (for
+    // example "image/png, text/html", or a duplicated header) is stored as
+    // application/octet-stream, never verbatim.
+    const mimeType = normalizeIncomingMime(ctx.req.header("content-type"));
 
     const mimeRule = getFileRule(
       { mimeType, pubkey: auth?.pubkey },
