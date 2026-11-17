@@ -19,7 +19,7 @@ import { optionalAuth } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import type { Config } from "../config/schema.ts";
-import { mimeToExt } from "../utils/mime.ts";
+import { mimeToExt, resolveServedType } from "../utils/mime.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -94,16 +94,34 @@ export function buildBlobsRouter(
     const resolvedSize = blob?.size ?? await storage.size(hash, ext);
     const mimeType = blob?.type ?? (ext ? contentType(ext) : undefined) ??
       "application/octet-stream";
+    // Strict parse + allowlist: only a single, well-formed media type that is
+    // safe to render (raster image, audio, video, plain text, octet-stream)
+    // stays inline. Malformed or multi-valued stored types are never echoed.
+    // An empty stored type means "unknown", same as no type at all.
+    const served = resolveServedType(mimeType || "application/octet-stream");
 
     const headers: Record<string, string> = {
-      "Content-Type": mimeType,
+      "Content-Type": served.contentType,
       "Accept-Ranges": "bytes",
       "Cache-Control": "public, max-age=31536000, immutable",
       ETag: `"${hash}"`,
       "Last-Modified": new Date((blob?.uploaded ?? now) * 1000).toUTCString(),
+      // Never let a browser second-guess the stored type (e.g. render bytes
+      // uploaded as text/plain or image/avif as HTML or SVG).
+      "X-Content-Type-Options": "nosniff",
     };
     if (resolvedSize !== null) {
       headers["Content-Length"] = String(resolvedSize);
+    }
+    // Everything outside the inline allowlist (HTML, XML, XSL, SVG, scripts,
+    // unknown or malformed types) is a download inside a CSP sandbox, so an
+    // uploaded file can never run script as this origin. <img src> embedding
+    // of SVG and fetch() of encrypted blobs are unaffected by either header.
+    if (served.download) {
+      const safeExt = /^[a-z0-9]{1,10}$/.test(ext) ? `.${ext}` : "";
+      headers["Content-Disposition"] =
+        `attachment; filename="${hash}${safeExt}"`;
+      headers["Content-Security-Policy"] = "sandbox";
     }
 
     // Conditional request: If-None-Match (RFC 9110 §13.1.2)
@@ -115,11 +133,16 @@ export function buildBlobsRouter(
         t.trim().replace(/^"(.*)"$/, "$1")
       );
       if (tags.includes(hash) || tags.includes("*")) {
-        return ctx.body(null, 304, {
+        const notModified: Record<string, string> = {
           ETag: headers["ETag"],
           "Cache-Control": headers["Cache-Control"],
           "Last-Modified": headers["Last-Modified"],
-        });
+          "X-Content-Type-Options": headers["X-Content-Type-Options"],
+        };
+        for (const name of ["Content-Disposition", "Content-Security-Policy"]) {
+          if (headers[name]) notModified[name] = headers[name];
+        }
+        return ctx.body(null, 304, notModified);
       }
     }
 
