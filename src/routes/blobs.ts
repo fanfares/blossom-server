@@ -19,7 +19,7 @@ import { optionalAuth } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { errorResponse } from "../middleware/errors.ts";
 import type { Config } from "../config/schema.ts";
-import { isActiveContentMime, mimeToExt } from "../utils/mime.ts";
+import { mimeToExt, resolveServedType } from "../utils/mime.ts";
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -94,9 +94,14 @@ export function buildBlobsRouter(
     const resolvedSize = blob?.size ?? await storage.size(hash, ext);
     const mimeType = blob?.type ?? (ext ? contentType(ext) : undefined) ??
       "application/octet-stream";
+    // Strict parse + allowlist: only a single, well-formed media type that is
+    // safe to render (raster image, audio, video, plain text, octet-stream)
+    // stays inline. Malformed or multi-valued stored types are never echoed.
+    // An empty stored type means "unknown", same as no type at all.
+    const served = resolveServedType(mimeType || "application/octet-stream");
 
     const headers: Record<string, string> = {
-      "Content-Type": mimeType,
+      "Content-Type": served.contentType,
       "Accept-Ranges": "bytes",
       "Cache-Control": "public, max-age=31536000, immutable",
       ETag: `"${hash}"`,
@@ -108,10 +113,11 @@ export function buildBlobsRouter(
     if (resolvedSize !== null) {
       headers["Content-Length"] = String(resolvedSize);
     }
-    // Active documents (HTML, XML, SVG, ...) are served as downloads inside a
-    // CSP sandbox, so an uploaded file can never run script as this origin.
-    // <img src> embedding of SVG is unaffected by either header.
-    if (isActiveContentMime(mimeType)) {
+    // Everything outside the inline allowlist (HTML, XML, XSL, SVG, scripts,
+    // unknown or malformed types) is a download inside a CSP sandbox, so an
+    // uploaded file can never run script as this origin. <img src> embedding
+    // of SVG and fetch() of encrypted blobs are unaffected by either header.
+    if (served.download) {
       const safeExt = /^[a-z0-9]{1,10}$/.test(ext) ? `.${ext}` : "";
       headers["Content-Disposition"] =
         `attachment; filename="${hash}${safeExt}"`;

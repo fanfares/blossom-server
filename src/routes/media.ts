@@ -52,7 +52,7 @@ import { requireAuth } from "../middleware/auth.ts";
 import type { BlossomVariables } from "../middleware/auth.ts";
 import { debug } from "../middleware/debug.ts";
 import { errorResponse } from "../middleware/errors.ts";
-import { mimeToExt } from "../utils/mime.ts";
+import { mimeToExt, normalizeIncomingMime } from "../utils/mime.ts";
 import { optimizeMedia } from "../optimize/index.ts";
 import { getFileRule } from "../prune/rules.ts";
 import type { IBlobStorage } from "../storage/interface.ts";
@@ -185,7 +185,7 @@ export function buildMediaRouter(
     const xContentType = ctx.req.header("x-content-type") ??
       ctx.req.header("content-type");
     if (xContentType) {
-      const mimeType = xContentType.split(";")[0].trim();
+      const mimeType = normalizeIncomingMime(xContentType);
       const mimeRule = getFileRule(
         { mimeType, pubkey: ctx.get("auth")?.pubkey },
         config.storage.rules,
@@ -293,9 +293,7 @@ export function buildMediaRouter(
       }
 
       // --- 5. MIME allowlist check via storage rules ---
-      const contentType = ctx.req.header("content-type") ??
-        "application/octet-stream";
-      const mimeType = contentType.split(";")[0].trim();
+      const mimeType = normalizeIncomingMime(ctx.req.header("content-type"));
       const mimeRule = getFileRule(
         { mimeType, pubkey: auth?.pubkey },
         config.storage.rules,
