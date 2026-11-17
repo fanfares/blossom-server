@@ -18,6 +18,18 @@ storage:
     accessKey: "${R2_ACCESS_KEY_ID}"
     secretKey: "${R2_SECRET_ACCESS_KEY}"
     tmpDir: /tmp/blossom-r2-tmp
+  # Retention is pinned on purpose. Leaving storage.rules unset falls back to
+  # the schema defaults (images pruned after 1 month unaccessed, everything
+  # else after 1 week), and the prune loop deletes the R2 bytes of any blob
+  # without an active paid grant. With a durable database that would erase
+  # creators' published media; on the production Turso cutover it would hit
+  # every pre-seeded legacy blob on first boot. Rules also act as the MIME
+  # upload gate, so "*" keeps accepting every type. Any shorter retention
+  # must be an explicit operator decision.
+  rules:
+    - type: "*"
+      expiration: "100 years"
+  removeWhenNoOwners: false
 
 upload:
   enabled: true

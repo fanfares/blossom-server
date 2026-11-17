@@ -6,13 +6,15 @@
  *   - Production writes are restricted to the early-access pubkey allowlist
  *   - Production quota and purchase records use the durable Turso database
  *   - Staging uses its isolated hostname and forwards low-cost storage payments to its test wallet
+ *   - Production and staging pin retention so the prune loop never deletes stored blobs
  *   - Missing deployment secrets fail configuration loading before startup
  * @dependencies config loader and committed Cloudflare deployment config
  * @type unit | deno
  */
 
-import { assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { loadConfig } from "../../src/config/loader.ts";
+import { getFileRule, parseDuration } from "../../src/prune/rules.ts";
 
 const CLOUDFLARE_TEST_ENV = {
   TURSO_DATABASE_URL: "libsql://test-database.turso.io",
@@ -106,6 +108,37 @@ Deno.test("Staging Cloudflare config forwards paid storage to its dedicated test
   );
   assertEquals(config.upload.requireAuth, true);
   assertEquals(config.delete.requireAuth, true);
+});
+
+Deno.test("Cloudflare deployment configs pin retention instead of inheriting the prune defaults", async () => {
+  const fiftyYears = 50 * 365 * 24 * 60 * 60;
+  for (
+    const config of [
+      await loadTestCloudflareConfig(),
+      await loadTestStagingConfig(),
+    ]
+  ) {
+    // The schema default would prune unaccessed blobs after 1 week / 1 month.
+    assert(config.storage.rules.length > 0);
+    for (const rule of config.storage.rules) {
+      assert(
+        parseDuration(rule.expiration) >= fiftyYears,
+        `rule ${rule.type} expires after ${rule.expiration}`,
+      );
+    }
+    assertEquals(config.storage.removeWhenNoOwners, false);
+    // Rules double as the upload MIME gate: every type must still be accepted.
+    for (
+      const mimeType of [
+        "application/octet-stream",
+        "image/jpeg",
+        "audio/mp4",
+        null,
+      ]
+    ) {
+      assert(getFileRule({ mimeType }, config.storage.rules) !== null);
+    }
+  }
 });
 
 Deno.test("Configuration loading rejects a missing environment placeholder", async () => {
