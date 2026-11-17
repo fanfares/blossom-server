@@ -12,6 +12,7 @@
 import type { Hono } from "@hono/hono";
 import { assertEquals } from "@std/assert";
 import { encodeBase64Url } from "@std/encoding/base64url";
+import { encodeHex } from "@std/encoding/hex";
 import { join } from "@std/path";
 import type { NostrEvent } from "nostr-tools";
 import {
@@ -100,7 +101,10 @@ Deno.test({
 
     // Upload a test blob so the pubkey owns at least one blob
     const body = new TextEncoder().encode("list e2e test blob");
-    const auth = makeUploadAuth({});
+    const hash = encodeHex(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", body)),
+    );
+    const auth = makeUploadAuth({ hash });
 
     const uploadRes = await app.fetch(
       new Request("http://localhost/upload", {
