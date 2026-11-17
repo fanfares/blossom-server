@@ -135,6 +135,49 @@ Deno.test("parseAuthEvent: rejects event with expired expiration tag", () => {
   );
 });
 
+Deno.test("parseAuthEvent: rejects a non-integer expiration that parseInt would accept", () => {
+  const now = Math.floor(Date.now() / 1000);
+  for (const value of [`${now + 600}junk`, `${now + 600}.5`, "1e12", " 9"]) {
+    const event = makeEvent({
+      tags: [["t", "upload"], ["expiration", value]],
+    });
+    const err = assertThrows(
+      () => parseAuthEvent(encodeEvent(event), null),
+      HTTPException,
+      "unix-seconds integer",
+    );
+    assertEquals(err.status, 400, value);
+  }
+});
+
+Deno.test("parseAuthEvent: rejects a structurally invalid event with 400", () => {
+  const event = makeEvent({}) as unknown as Record<string, unknown>;
+  for (
+    const broken of [
+      { ...event, tags: "not-an-array" },
+      { ...event, sig: undefined },
+      { ...event, pubkey: 42 },
+    ]
+  ) {
+    const raw = encodeBase64Url(
+      new TextEncoder().encode(JSON.stringify(broken)),
+    );
+    const err = assertThrows(
+      () => parseAuthEvent(raw, null),
+      HTTPException,
+    );
+    assertEquals(err.status, 400);
+  }
+});
+
+Deno.test("parseAuthEvent: standard Base64 fallback decodes UTF-8 content", () => {
+  const event = makeEvent({ content: "Upload caf\u00e9 \u{1F338}" });
+  const json = new TextEncoder().encode(JSON.stringify(event));
+  const standard = btoa(String.fromCharCode(...json));
+  const result = parseAuthEvent(standard, null);
+  assertEquals(result.id, event.id);
+});
+
 // ---------------------------------------------------------------------------
 // parseAuthEvent — t tag
 // ---------------------------------------------------------------------------
@@ -328,10 +371,13 @@ Deno.test("requireAuth: returns event when auth and type match", () => {
 const TEST_HASH = "a".repeat(64);
 const OTHER_HASH = "b".repeat(64);
 
-Deno.test("requireXTag: no x tags → no throw (open auth event)", () => {
+Deno.test("requireXTag: no x tags → throws 403 (unscoped tokens are refused)", () => {
   const event = makeEvent({});
-  // Should not throw — open upload token
-  requireXTag(event, TEST_HASH);
+  const err = assertThrows(
+    () => requireXTag(event, TEST_HASH),
+    HTTPException,
+  );
+  assertEquals(err.status, 403);
 });
 
 Deno.test("requireXTag: x tag present and hash matches → no throw", () => {

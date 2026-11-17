@@ -277,9 +277,9 @@ export function buildUploadRouter(
       return errorResponse(ctx, 400, "Invalid X-SHA-256 header format");
     }
 
-    // BUD-11: if the client provided X-SHA-256 and auth has x tags, we can
-    // validate upfront. If X-SHA-256 is absent, defer the x-tag check until
-    // after the worker resolves the actual hash (step 9).
+    // BUD-11: the token must carry an x tag for this blob. With X-SHA-256 we
+    // validate upfront; without it, defer the check until the worker resolves
+    // the actual hash (step 9b).
     if (auth && xSha256) {
       try {
         requireXTag(auth, xSha256);

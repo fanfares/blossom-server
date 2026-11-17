@@ -54,16 +54,23 @@ class FakePayments implements LightningQuoteProvider {
   }
 }
 
+/** sha256("hello"), the only blob these tests upload. */
+const HELLO_SHA256 =
+  "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+
 function authorization(
   verb: "upload" | "storage",
   signingKey = secretKey,
 ): string {
   const now = Math.floor(Date.now() / 1000);
+  const tags = [["t", verb], ["expiration", String(now + 600)]];
+  // Upload tokens must be scoped to the blob they authorize.
+  if (verb === "upload") tags.push(["x", HELLO_SHA256]);
   const event: NostrEvent = finalizeEvent(
     {
       kind: 24242,
       created_at: now,
-      tags: [["t", verb], ["expiration", String(now + 600)]],
+      tags,
       content: `Authorize ${verb}`,
     },
     signingKey,
