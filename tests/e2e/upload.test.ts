@@ -367,11 +367,10 @@ Deno.test({
 });
 
 Deno.test({
-  name: "PUT /upload: with correct auth and open x-tag returns 201",
+  name: "PUT /upload: with correct auth scoped to the blob returns 201",
   async fn() {
     const body = new TextEncoder().encode("authenticated upload");
-    // Open token — no x tags, permits any blob
-    const auth = makeUploadAuth({});
+    const auth = makeUploadAuth({ hash: await sha256Hex(body) });
 
     const res = await fetchWithAuth("/upload", {
       method: "PUT",
@@ -386,6 +385,30 @@ Deno.test({
     const json = await res.json();
     assertEquals(typeof json.sha256, "string");
     assertEquals(json.sha256.length, 64);
+  },
+  ...testOpts,
+});
+
+Deno.test({
+  name: "PUT /upload: unscoped token (no x tag) is rejected with 403",
+  async fn() {
+    const body = new TextEncoder().encode("unscoped upload attempt");
+    // Without X-SHA-256 the check is deferred until the worker hashes the body.
+    for (const withHeader of [true, false]) {
+      const headers: Record<string, string> = {
+        "Content-Length": String(body.byteLength),
+        "Content-Type": "text/plain",
+        Authorization: encodeAuth(makeUploadAuth({})),
+      };
+      if (withHeader) headers["X-SHA-256"] = await sha256Hex(body);
+      const res = await fetchWithAuth("/upload", {
+        method: "PUT",
+        headers,
+        body,
+      });
+      assertEquals(res.status, 403, `X-SHA-256 sent: ${withHeader}`);
+      await res.body?.cancel();
+    }
   },
   ...testOpts,
 });
@@ -618,7 +641,7 @@ Deno.test({
 
     const body = new TextEncoder().encode("list url coverage");
     const hash = await sha256Hex(body);
-    const auth = makeUploadAuth({});
+    const auth = makeUploadAuth({ hash });
 
     const uploadRes = await listApp.fetch(
       new Request("https://localhost/upload", {

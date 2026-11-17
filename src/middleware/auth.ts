@@ -1,7 +1,8 @@
 import type { Context, MiddlewareHandler } from "@hono/hono";
 import { HTTPException } from "@hono/hono/http-exception";
+import { decodeBase64 } from "@std/encoding/base64";
 import { decodeBase64Url } from "@std/encoding/base64url";
-import { verifyEvent } from "nostr-tools/pure";
+import { validateEvent, verifyEvent } from "nostr-tools/pure";
 import type { NostrEvent } from "nostr-tools";
 import { debug } from "./debug.ts";
 
@@ -64,7 +65,7 @@ export function parseAuthEvent(
 ): NostrEvent {
   const now = Math.floor(Date.now() / 1000);
 
-  let auth: NostrEvent;
+  let parsed: unknown;
   try {
     // BUD-11 specifies Base64url; fall back to standard Base64 (atob) for
     // clients that encode with the standard alphabet (e.g. older nak versions).
@@ -72,14 +73,25 @@ export function parseAuthEvent(
     try {
       decoded = new TextDecoder().decode(decodeBase64Url(raw));
     } catch {
-      decoded = atob(raw);
+      decoded = new TextDecoder().decode(decodeBase64(raw));
     }
-    auth = JSON.parse(decoded) as NostrEvent;
+    parsed = JSON.parse(decoded);
   } catch {
     throw new HTTPException(400, {
       message: "Invalid Authorization header encoding",
     });
   }
+
+  // Reject anything that is not a structurally valid signed Nostr event before
+  // reading its fields, so malformed tags or ids surface as a 400, not a 500.
+  if (
+    !validateEvent(parsed) ||
+    typeof (parsed as Partial<NostrEvent>).id !== "string" ||
+    typeof (parsed as Partial<NostrEvent>).sig !== "string"
+  ) {
+    throw new HTTPException(400, { message: "Invalid Authorization event" });
+  }
+  const auth = parsed as NostrEvent;
 
   // BUD-11 validation
   if (auth.kind !== 24242) {
@@ -98,7 +110,14 @@ export function parseAuthEvent(
       message: "Auth event missing expiration tag",
     });
   }
-  if (parseInt(expiration, 10) < now) {
+  // A complete decimal integer only: parseInt("99999999999junk") would
+  // otherwise silently read as a far-future expiry.
+  if (!/^\d+$/.test(expiration) || !Number.isSafeInteger(Number(expiration))) {
+    throw new HTTPException(400, {
+      message: "Auth event expiration must be a unix-seconds integer",
+    });
+  }
+  if (Number(expiration) < now) {
     throw new HTTPException(401, { message: "Auth token expired" });
   }
 
@@ -215,12 +234,16 @@ export function optionalAuth(
 }
 
 /**
- * Verify that an auth event's x tags include the given hash.
- * Required for upload, delete operations per BUD-11.
+ * Verify that an auth event carries an x tag for exactly this blob hash.
+ *
+ * Upload and delete tokens must be scoped to the blob they act on. An unscoped
+ * token (no x tags) is rejected: replayed within its expiry window it would
+ * otherwise authorize uploading any blob, or deleting every blob the signer
+ * owns. Matches upstream blossom-server 6.4.1.
  */
 export function requireXTag(auth: NostrEvent, hash: string): void {
-  const xTags = auth.tags.filter((t) => t[0] === "x");
-  if (xTags.length > 0 && !xTags.some((t) => t[1] === hash)) {
+  const matches = auth.tags.some((t) => t[0] === "x" && t[1] === hash);
+  if (!matches) {
     throw new HTTPException(403, {
       message: `Auth token does not authorize operation on blob ${hash}`,
     });

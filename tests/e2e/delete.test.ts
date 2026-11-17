@@ -64,8 +64,8 @@ function encodeAuth(event: NostrEvent): string {
   }`;
 }
 
-/** Build a BUD-11 kind 24242 upload auth event (open token). */
-function makeUploadAuth(secretKey = sk): NostrEvent {
+/** Build a BUD-11 kind 24242 upload auth event scoped to one blob hash. */
+function makeUploadAuth(hash: string, secretKey = sk): NostrEvent {
   const now = Math.floor(Date.now() / 1000);
   return finalizeEvent(
     {
@@ -74,6 +74,7 @@ function makeUploadAuth(secretKey = sk): NostrEvent {
       tags: [
         ["t", "upload"],
         ["expiration", String(now + 600)],
+        ["x", hash],
       ],
       content: "Upload blob",
     },
@@ -119,7 +120,7 @@ Deno.test({
     // Upload a test blob owned by `sk` so we can test deletion
     const blobData = new TextEncoder().encode("delete test blob content");
     blobHash = await sha256Hex(blobData);
-    const uploadAuth = makeUploadAuth();
+    const uploadAuth = makeUploadAuth(blobHash);
 
     const uploadRes = await appWithAuth.fetch(
       new Request("http://localhost/upload", {
@@ -191,7 +192,7 @@ Deno.test({
     // Upload a fresh blob so it exists in the DB
     const freshData = new TextEncoder().encode("auth required test blob xyz");
     const freshHash = await sha256Hex(freshData);
-    const uploadAuth = makeUploadAuth();
+    const uploadAuth = makeUploadAuth(freshHash);
 
     const uploadRes = await appWithAuth.fetch(
       new Request("http://localhost/upload", {
@@ -227,7 +228,7 @@ Deno.test({
     const sk2 = generateSecretKey();
     const blobData2 = new TextEncoder().encode("non-owner test blob abc");
     const hash2 = await sha256Hex(blobData2);
-    const uploadAuth2 = makeUploadAuth(sk2);
+    const uploadAuth2 = makeUploadAuth(hash2, sk2);
 
     const uploadRes = await appWithAuth.fetch(
       new Request("http://localhost/upload", {
@@ -253,6 +254,52 @@ Deno.test({
     );
     assertEquals(res.status, 403);
     await res.body?.cancel();
+  },
+  ...testOpts,
+});
+
+Deno.test({
+  name: "DELETE blob: owner token without an x tag for the blob returns 403",
+  async fn() {
+    const data = new TextEncoder().encode("unscoped delete token test blob");
+    const hash = await sha256Hex(data);
+    const uploadRes = await appWithAuth.fetch(
+      new Request("http://localhost/upload", {
+        method: "PUT",
+        headers: {
+          "Content-Length": String(data.byteLength),
+          "Content-Type": "text/plain",
+          Authorization: encodeAuth(makeUploadAuth(hash)),
+        },
+        body: data,
+      }),
+    );
+    assertEquals(uploadRes.status, 201, "Pre-test upload must succeed");
+    await uploadRes.body?.cancel();
+
+    // The owner signs a delete token with no x tag: it must not act as a
+    // blanket "delete anything I own" credential.
+    const now = Math.floor(Date.now() / 1000);
+    const unscoped = finalizeEvent({
+      kind: 24242,
+      created_at: now,
+      tags: [["t", "delete"], ["expiration", String(now + 600)]],
+      content: "Delete blob",
+    }, sk);
+    const res = await appWithAuth.fetch(
+      new Request(`http://localhost/${hash}`, {
+        method: "DELETE",
+        headers: { Authorization: encodeAuth(unscoped) },
+      }),
+    );
+    assertEquals(res.status, 403);
+    await res.body?.cancel();
+
+    // The blob is still there.
+    const head = await appWithAuth.fetch(
+      new Request(`http://localhost/${hash}`, { method: "HEAD" }),
+    );
+    assertEquals(head.status, 200);
   },
   ...testOpts,
 });
