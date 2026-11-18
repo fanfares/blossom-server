@@ -99,6 +99,13 @@ jobs:
             sleep 10
           done
           [ "$code" = "200" ] || { echo "::error::$host did not come up (last status $code)"; exit 1; }
-          acct=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$host/storage/account" || true)
-          echo "GET /storage/account -> $acct"
-          [ "$acct" = "401" ] || { echo "::error::expected 401 from /storage/account, got $acct"; exit 1; }
+          # The paid-storage check applies only to code that ships the
+          # paid-storage routes. master (production) does not have them until
+          # the Turso cutover, so there /storage/account is a 404 by design.
+          if [ -f src/routes/paid-storage.ts ]; then
+            acct=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$host/storage/account" || true)
+            echo "GET /storage/account -> $acct"
+            [ "$acct" = "401" ] || { echo "::error::expected 401 from /storage/account, got $acct"; exit 1; }
+          else
+            echo "No paid-storage routes in this build; skipping the /storage/account check"
+          fi
